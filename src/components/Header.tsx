@@ -57,15 +57,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
           {/* Navigation */}
           <nav className="hidden md:flex items-center gap-6">
-            <a href="#" className="hover:text-amber-200 transition-colors duration-300 font-medium">
-              {t('browse', 'ব্রাউজ করুন', 'Browse')}
-            </a>
-            <a href="#" className="hover:text-amber-200 transition-colors duration-300 font-medium">
-              {t('list-property', 'সম্পত্তি তালিকাভুক্ত করুন', 'List Property')}
-            </a>
-            <a href="#" className="hover:text-amber-200 transition-colors duration-300 font-medium">
-              {t('about', 'সম্পর্কে', 'About')}
-            </a>
+            {/* Navigation items removed as per user request */}
           </nav>
 
           {/* Right Side Actions */}
