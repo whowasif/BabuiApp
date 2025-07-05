@@ -3,6 +3,7 @@ import { useInView } from 'react-intersection-observer';
 import SearchFilters from '../components/SearchFilters';
 import PropertyCard from '../components/PropertyCard';
 import MapView from '../components/MapView';
+import SimpleMapTest from '../components/SimpleMapTest';
 import { SearchFilters as SearchFiltersType } from '../types';
 import { mockProperties } from '../data/mockProperties';
 import { useLanguage } from '../hooks/useLanguage';
@@ -290,11 +291,7 @@ const HomePage: React.FC = () => {
         ) : (
           /* Map View with enhanced styling */
           <div className="bg-white rounded-2xl shadow-lg border border-amber-200 overflow-hidden">
-            <MapView
-              properties={filteredProperties}
-              selectedProperty={selectedProperty}
-              onPropertySelect={handlePropertySelect}
-            />
+            <SimpleMapTest />
           </div>
         )}
       </main>

@@ -1,13 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, MapPin, Home, Bed, X, Check, ArrowLeft } from 'lucide-react';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import { useLanguage } from '../hooks/useLanguage';
 import { useNavigate } from 'react-router-dom';
 import LocationSearch from '../components/LocationSearch';
 import BangladeshLocationSearch from '../components/BangladeshLocationSearch';
 import LocationPicker from '../components/LocationPicker';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+import Map from 'ol/Map';
+import View from 'ol/View';
+import TileLayer from 'ol/layer/Tile';
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import OSM from 'ol/source/OSM';
+import { fromLonLat } from 'ol/proj';
+import { Point } from 'ol/geom';
+import { Feature } from 'ol';
+import { Style, Circle, Fill, Stroke } from 'ol/style';
+import 'ol/ol.css';
 
 interface PropertyFormData {
   title: string;
@@ -213,6 +221,61 @@ const AddPropertyPage: React.FC = () => {
       setCurrentStep(currentStep - 1);
     }
   };
+
+  // Initialize OpenLayers map for location preview
+  useEffect(() => {
+    if (formData.location && currentStep === 5) {
+      const mapElement = document.getElementById('property-location-map');
+      if (mapElement) {
+        // Clear any existing map
+        mapElement.innerHTML = '';
+        
+        // Create vector source for marker
+        const vectorSource = new VectorSource({
+          features: [
+            new Feature({
+              geometry: new Point(fromLonLat([formData.location.lng, formData.location.lat]))
+            })
+          ]
+        });
+
+        // Create vector layer for marker
+        const vectorLayer = new VectorLayer({
+          source: vectorSource,
+          style: new Style({
+            image: new Circle({
+              radius: 8,
+              fill: new Fill({ color: '#ef4444' }),
+              stroke: new Stroke({ color: '#ffffff', width: 2 })
+            })
+          })
+        });
+
+        // Create tile layer
+        const tileLayer = new TileLayer({
+          source: new OSM()
+        });
+
+        // Create map
+        const map = new Map({
+          target: mapElement,
+          layers: [tileLayer, vectorLayer],
+          view: new View({
+            center: fromLonLat([formData.location.lng, formData.location.lat]),
+            zoom: 15,
+            minZoom: 8,
+            maxZoom: 18
+          }),
+          controls: [] // Remove default controls for preview
+        });
+
+        // Cleanup function
+        return () => {
+          map.setTarget(undefined);
+        };
+      }
+    }
+  }, [formData.location, currentStep]);
 
   const renderStep = () => {
     switch (currentStep) {
@@ -1616,36 +1679,7 @@ const AddPropertyPage: React.FC = () => {
                     {t('selected-location', 'নির্বাচিত অবস্থান', 'Selected Location')}
                   </h4>
                   <div className="border border-gray-300 rounded-lg overflow-hidden" style={{ height: '200px' }}>
-                    <MapContainer
-                      center={[formData.location.lat, formData.location.lng]}
-                      zoom={15}
-                      className="w-full h-full"
-                      style={{ height: '200px' }}
-                      zoomControl={false}
-                      attributionControl={false}
-                    >
-                      <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution=""
-                      />
-                      <Marker
-                        position={[formData.location.lat, formData.location.lng]}
-                        icon={L.divIcon({
-                          className: 'custom-location-marker',
-                          html: `
-                            <div class="relative">
-                              <div class="w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg">
-                                <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                                </svg>
-                              </div>
-                            </div>
-                          `,
-                          iconSize: [24, 24],
-                          iconAnchor: [12, 24],
-                        })}
-                      />
-                    </MapContainer>
+                    <div id="property-location-map" style={{ height: '200px' }} />
                   </div>
                 </div>
               )}
