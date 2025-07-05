@@ -27,14 +27,8 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
 
   const propertyTypes = [
     { value: 'apartment', labelBn: 'অ্যাপার্টমেন্ট', labelEn: 'Apartment' },
-    { value: 'house', labelBn: 'বাড়ি', labelEn: 'House' },
     { value: 'room', labelBn: 'রুম', labelEn: 'Room' },
-    { value: 'studio', labelBn: 'স্টুডিও', labelEn: 'Studio' },
-    { value: 'family', labelBn: 'পরিবার', labelEn: 'Family' },
-    { value: 'bachelor', labelBn: 'ব্যাচেলর', labelEn: 'Bachelor' },
     { value: 'office', labelBn: 'অফিস', labelEn: 'Office' },
-    { value: 'sublet', labelBn: 'সাবলেট', labelEn: 'Sublet' },
-    { value: 'hostel', labelBn: 'হোস্টেল', labelEn: 'Hostel' },
     { value: 'shop', labelBn: 'দোকান', labelEn: 'Shop' },
     { value: 'parking', labelBn: 'পার্কিং', labelEn: 'Parking' }
   ];
@@ -57,6 +51,13 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
     { value: 'immediate', labelBn: 'তাৎক্ষণিক', labelEn: 'Immediate' },
     { value: 'within-week', labelBn: 'এক সপ্তাহের মধ্যে', labelEn: 'Within a Week' },
     { value: 'within-month', labelBn: 'এক মাসের মধ্যে', labelEn: 'Within a Month' }
+  ];
+
+  const priorityOptions = [
+    { value: '', labelBn: 'যেকোনো', labelEn: 'Any' },
+    { value: 'family', labelBn: 'পরিবার', labelEn: 'Family' },
+    { value: 'bachelor', labelBn: 'ব্যাচেলর', labelEn: 'Bachelor' },
+    { value: 'sublet', labelBn: 'সাবলেট', labelEn: 'Sublet' },
   ];
 
   if (showMainSearch) {
@@ -159,8 +160,8 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
             </div>
           </div>
         </div>
-        {/* Property Type and Price */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Property Type and Priority */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t('property-type', 'সম্পত্তির ধরন', 'Property Type')}
@@ -182,7 +183,27 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
               </select>
             </div>
           </div>
-
+          {(filters.type === 'apartment' || filters.type === 'room') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {t('priority', 'অগ্রাধিকার', 'Priority (Family/Bachelor/Sublet)')}
+              </label>
+              <select
+                value={filters.priority || ''}
+                onChange={e => onFiltersChange({
+                  ...filters,
+                  priority: (e.target.value === '' ? undefined : e.target.value as 'family' | 'bachelor' | 'sublet')
+                })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-gray-900 bg-white"
+              >
+                {priorityOptions.map(option => (
+                  <option key={option.value} value={option.value} className="text-gray-900">
+                    {language === 'bn' ? option.labelBn : option.labelEn}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t('max-price', 'সর্বোচ্চ মূল্য', 'Max Price')}

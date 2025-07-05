@@ -76,6 +76,7 @@ export interface SearchFilters {
   furnishing?: 'furnished' | 'semi-furnished' | 'unfurnished' | 'any';
   availability?: 'immediate' | 'within-week' | 'within-month' | 'any';
   parking?: 'required' | 'not-required' | 'any';
+  priority?: 'family' | 'bachelor' | 'sublet';
 }
 
 export interface User {

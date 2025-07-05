@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, MapPin, Home, Bed, X, Check, ArrowLeft, Search, Navigation, Filter, Info, ArrowRight, Route, Car, Bike, Train, Bus, Building, Trees, Droplets, Layers, Plus, Minus, Maximize2, RotateCcw, Locate } from 'lucide-react';
+import { Camera, MapPin, Home, Bed, X, Check, ArrowLeft, Search, Navigation, Info, ArrowRight, Car, Building, Plus, Minus, RotateCcw, Locate } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useNavigate } from 'react-router-dom';
 import LocationSearch from '../components/LocationSearch';
@@ -11,16 +11,13 @@ import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import OSM from 'ol/source/OSM';
-import XYZ from 'ol/source/XYZ';
-import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { Point, LineString, Polygon } from 'ol/geom';
+import { fromLonLat, toLonLat } from 'ol/proj';
+import { Point } from 'ol/geom';
 import { Feature } from 'ol';
-import { Style, Circle, Fill, Stroke, Icon, Text } from 'ol/style';
-import { Select, defaults as defaultInteractions, DragPan, MouseWheelZoom, Draw, Modify } from 'ol/interaction';
-import { click, pointerMove } from 'ol/events/condition';
-import { ScaleLine, defaults as defaultControls, ZoomSlider, FullScreen, Attribution, MousePosition } from 'ol/control';
-import { unByKey } from 'ol/Observable';
-import { createStringXY } from 'ol/coordinate';
+import { Style, Circle, Fill, Stroke, Text } from 'ol/style';
+import { Select, defaults as defaultInteractions } from 'ol/interaction';
+import { click } from 'ol/events/condition';
+import { ScaleLine, defaults as defaultControls, ZoomSlider, FullScreen, Attribution } from 'ol/control';
 import 'ol/ol.css';
 
 // Search result interface
@@ -33,13 +30,7 @@ interface SearchResult {
   importance: number;
 }
 
-// Route result interface
-interface RouteResult {
-  distance: number;
-  duration: number;
-  geometry: number[][];
-  mode: 'driving' | 'walking' | 'cycling' | 'transit';
-}
+
 
 // Property location with enhanced OpenStreetMap data
 interface PropertyLocation {
@@ -107,6 +98,7 @@ interface PropertyFormData {
     land_use?: string;
     accessibility_features?: string[];
   };
+  priority?: 'family' | 'bachelor' | 'sublet';
 }
 
 // Define a type for allowed property types
@@ -159,21 +151,6 @@ const AddPropertyPage: React.FC = () => {
       accessibility_features: []
     }
   });
-
-  // OpenStreetMap specific states
-  const [mapStyle, setMapStyle] = useState<'default' | 'satellite' | 'terrain' | 'dark' | 'cycle' | 'transport'>('default');
-  const [showNearbyAmenities, setShowNearbyAmenities] = useState(false);
-  const [showTransportRoutes, setShowTransportRoutes] = useState(false);
-  const [showBuildingInfo, setShowBuildingInfo] = useState(false);
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
-  const [accessibilityFeatures, setAccessibilityFeatures] = useState<string[]>([]);
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<Map | null>(null);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -292,7 +269,6 @@ const AddPropertyPage: React.FC = () => {
     const amenitiesSourceRef = useRef<VectorSource | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
     const [showResults, setShowResults] = useState(false);
     const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -307,7 +283,6 @@ const AddPropertyPage: React.FC = () => {
         return;
       }
       searchTimeoutRef.current = setTimeout(async () => {
-        setIsSearching(true);
         try {
           const response = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&countrycodes=bd&limit=8&addressdetails=1`
@@ -315,10 +290,10 @@ const AddPropertyPage: React.FC = () => {
           const data = await response.json();
           setSearchResults(data);
           setShowResults(true);
-        } catch (error) {
+        } catch {
           setSearchResults([]);
         } finally {
-          setIsSearching(false);
+          setShowResults(false);
         }
       }, 300);
       return () => {
@@ -350,7 +325,7 @@ const AddPropertyPage: React.FC = () => {
         if (onLocationSelect) {
           onLocationSelect({ lat, lng, address });
         }
-      } catch (error) {
+      } catch {
         if (onLocationSelect) {
           onLocationSelect({ lat, lng });
         }
@@ -460,8 +435,7 @@ const AddPropertyPage: React.FC = () => {
             const address = data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
             const newLocation: PropertyLocation = { lat, lng, address };
             onLocationSelect(newLocation);
-          } catch (error) {
-            console.error('Error getting address:', error);
+          } catch {
             const newLocation: PropertyLocation = { lat, lng };
             onLocationSelect(newLocation);
           }
@@ -539,9 +513,9 @@ const AddPropertyPage: React.FC = () => {
             <button
               type="button"
               className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-teal-600"
-              disabled={isSearching}
+              disabled={showResults}
             >
-              {isSearching ? (
+              {showResults ? (
                 <div className="w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <ArrowRight size={16} />
@@ -657,13 +631,13 @@ const AddPropertyPage: React.FC = () => {
                     if (onLocationSelect) {
                       onLocationSelect({ lat, lng, address });
                     }
-                  } catch (error) {
+                  } catch {
                     if (onLocationSelect) {
                       onLocationSelect({ lat, lng });
                     }
                   }
                 },
-                (error) => {
+                () => {
                   alert('Unable to retrieve your location.');
                 }
               );
@@ -705,7 +679,7 @@ const AddPropertyPage: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <Building size={12} className="text-blue-500" />
                   <span>
-                    {Object.values(location.nearby_amenities).reduce((sum: number, count: any) => sum + (count as number), 0)} nearby amenities
+                    {Object.values(location.nearby_amenities).reduce((sum: number, count: number) => sum + count, 0)} nearby amenities
                   </span>
                 </div>
               )}
@@ -878,6 +852,20 @@ const AddPropertyPage: React.FC = () => {
                   <option value="any">Any</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
+                </select>
+              </div>
+              {/* Priority (Family/Bachelor/Sublet) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Priority (Family/Bachelor/Sublet)</label>
+                <select
+                  value={formData.priority || ''}
+                  onChange={(e) => handleInputChange('priority', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                >
+                  <option value="">Select</option>
+                  <option value="family">Family</option>
+                  <option value="bachelor">Bachelor</option>
+                  <option value="sublet">Sublet</option>
                 </select>
               </div>
               {/* Area (sqft) */}
@@ -1208,6 +1196,20 @@ const AddPropertyPage: React.FC = () => {
                   <option value="any">Any</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
+                </select>
+              </div>
+              {/* Priority (Family/Bachelor/Sublet) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Priority (Family/Bachelor/Sublet)</label>
+                <select
+                  value={formData.priority || ''}
+                  onChange={(e) => handleInputChange('priority', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                >
+                  <option value="">Select</option>
+                  <option value="family">Family</option>
+                  <option value="bachelor">Bachelor</option>
+                  <option value="sublet">Sublet</option>
                 </select>
               </div>
               {/* Area (sqft) */}

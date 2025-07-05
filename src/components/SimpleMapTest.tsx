@@ -8,7 +8,7 @@ import VectorSource from 'ol/source/Vector';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
 import { fromLonLat } from 'ol/proj';
-import { Point, LineString, Circle, Circle as OlCircle, Point as OlPoint } from 'ol/geom';
+import { Point, LineString, Circle } from 'ol/geom';
 import { Feature } from 'ol';
 import { Style, Icon, Stroke, Fill, Circle as StyleCircle } from 'ol/style';
 import 'ol/ol.css';
@@ -48,8 +48,6 @@ const SimpleMapTest: React.FC = () => {
   const [routeEnd, setRouteEnd] = useState('');
   const [routeStartResults, setRouteStartResults] = useState<SearchResult[]>([]);
   const [routeEndResults, setRouteEndResults] = useState<SearchResult[]>([]);
-  const [routeStartSearching, setRouteStartSearching] = useState(false);
-  const [routeEndSearching, setRouteEndSearching] = useState(false);
   const [routeStartShowResults, setRouteStartShowResults] = useState(false);
   const [routeEndShowResults, setRouteEndShowResults] = useState(false);
   const [travelMode, setTravelMode] = useState<'car' | 'bike' | 'walk'>('car');
@@ -61,7 +59,7 @@ const SimpleMapTest: React.FC = () => {
   const routeEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
-  const [routeSteps, setRouteSteps] = useState<any[]>([]);
+  const [routeSteps, setRouteSteps] = useState<Array<{ maneuver: { instruction: string }; distance: number; duration: number }>>([]);
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
   const routeLineRef = useRef<Feature | null>(null);
@@ -171,8 +169,7 @@ const SimpleMapTest: React.FC = () => {
         const data = await response.json();
         setSearchResults(data);
         setShowResults(true);
-      } catch (error) {
-        console.error('Search error:', error);
+      } catch {
         setSearchResults([]);
       } finally {
         setIsSearching(false);
@@ -196,7 +193,6 @@ const SimpleMapTest: React.FC = () => {
       return;
     }
     routeStartTimeoutRef.current = setTimeout(async () => {
-      setRouteStartSearching(true);
       try {
         const response = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(routeStart)}&countrycodes=bd&limit=8&addressdetails=1`
@@ -204,10 +200,8 @@ const SimpleMapTest: React.FC = () => {
         const data = await response.json();
         setRouteStartResults(data);
         setRouteStartShowResults(true);
-      } catch (error) {
+      } catch {
         setRouteStartResults([]);
-      } finally {
-        setRouteStartSearching(false);
       }
     }, 300);
     return () => {
@@ -215,7 +209,7 @@ const SimpleMapTest: React.FC = () => {
         clearTimeout(routeStartTimeoutRef.current);
       }
     };
-  }, [routeStart]);
+  }, [routeStart, usingCurrentLocationAsStart]);
 
   // Debounced search for route end
   useEffect(() => {
@@ -228,7 +222,6 @@ const SimpleMapTest: React.FC = () => {
       return;
     }
     routeEndTimeoutRef.current = setTimeout(async () => {
-      setRouteEndSearching(true);
       try {
         const response = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(routeEnd)}&countrycodes=bd&limit=8&addressdetails=1`
@@ -236,10 +229,8 @@ const SimpleMapTest: React.FC = () => {
         const data = await response.json();
         setRouteEndResults(data);
         setRouteEndShowResults(true);
-      } catch (error) {
+      } catch {
         setRouteEndResults([]);
-      } finally {
-        setRouteEndSearching(false);
       }
     }, 300);
     return () => {
@@ -247,7 +238,7 @@ const SimpleMapTest: React.FC = () => {
         clearTimeout(routeEndTimeoutRef.current);
       }
     };
-  }, [routeEnd]);
+  }, [routeEnd, usingCurrentLocationAsStart]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -324,7 +315,7 @@ const SimpleMapTest: React.FC = () => {
             }
             // Marker
             const markerFeature = new Feature({
-              geometry: new OlPoint(center)
+              geometry: new Point(center)
             });
             markerFeature.setStyle(new Style({
               image: new StyleCircle({
@@ -338,7 +329,7 @@ const SimpleMapTest: React.FC = () => {
             // Accuracy circle
             if (accuracy && accuracy > 0) {
               const accuracyFeature = new Feature({
-                geometry: new OlCircle(center, accuracy)
+                geometry: new Circle(center, accuracy)
               });
               accuracyFeature.setStyle(new Style({
                 fill: new Fill({ color: 'rgba(37,99,235,0.15)' }),
@@ -350,7 +341,7 @@ const SimpleMapTest: React.FC = () => {
           }
           setSelectedLocation({ lat: latitude, lng: longitude });
         },
-        (error) => {
+        () => {
           alert('Unable to get your location.');
         }
       );
@@ -421,7 +412,7 @@ const SimpleMapTest: React.FC = () => {
         // Fit map to route
         mapInstanceRef.current.getView().fit(new LineString(coords), { padding: [80, 80, 80, 400], duration: 800 });
       }
-    } catch (err) {
+    } catch {
       setRouteError('Failed to fetch route.');
     } finally {
       setRouteLoading(false);
@@ -471,7 +462,7 @@ const SimpleMapTest: React.FC = () => {
           setUsingCurrentLocationAsStart(true);
           setRouteStartShowResults(false);
         },
-        (error) => {
+        () => {
           alert('Unable to get your location.');
         }
       );
@@ -484,7 +475,7 @@ const SimpleMapTest: React.FC = () => {
       setUsingCurrentLocationAsStart(false);
       setRouteStartCoords(null);
     }
-  }, [routeStart]);
+  }, [routeStart, usingCurrentLocationAsStart]);
 
   return (
     <div className="w-full h-96 bg-gray-200 rounded-lg overflow-hidden relative">

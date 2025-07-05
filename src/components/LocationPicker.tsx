@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapPin, Navigation, Crosshair } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import Map from 'ol/Map';
@@ -10,7 +10,7 @@ import OSM from 'ol/source/OSM';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { Point } from 'ol/geom';
 import { Feature } from 'ol';
-import { Style, Circle, Fill, Stroke, Icon } from 'ol/style';
+import { Style, Circle, Fill, Stroke } from 'ol/style';
 import { Select, defaults as defaultInteractions } from 'ol/interaction';
 import { click } from 'ol/events/condition';
 import 'ol/ol.css';
@@ -50,7 +50,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions] = useState<Array<{ place_id: string; display_name: string; lon: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchContainerRef = useRef<HTMLFormElement | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -58,7 +58,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
   const vectorSourceRef = useRef<VectorSource | null>(null);
   const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
 
-  const defaultCenter = [90.4125, 23.8103]; // Dhaka center
+  const defaultCenter = useMemo(() => [90.4125, 23.8103], []); // Dhaka center
 
   // Initialize map
   useEffect(() => {
@@ -127,7 +127,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     return () => {
       map.setTarget(undefined);
     };
-  }, [onLocationSelect]);
+  }, [onLocationSelect, defaultCenter, selectedLocation]);
 
   // Update marker when selectedLocation changes
   useEffect(() => {
@@ -204,7 +204,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     }
   };
 
-  const handleSuggestionClick = async (suggestion: any) => {
+  const handleSuggestionClick = async (suggestion: { place_id: string; display_name: string; lon: string }) => {
     const [lng, lat] = suggestion.lon.split(',').map(Number);
     const location = { lat, lng, address: suggestion.display_name };
     setSelectedLocation(location);
@@ -259,10 +259,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     }
   };
 
-  const handleLocationSelect = (location: { lat: number; lng: number; address?: string }) => {
-    setSelectedLocation(location);
-    onLocationSelect(location);
-  };
+
 
   return (
     <div className="space-y-4">
@@ -293,7 +290,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
         {/* Suggestions Dropdown */}
         {showSuggestions && suggestions.length > 0 && (
           <ul className="absolute z-20 left-0 right-12 mt-12 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto min-w-[300px]">
-            {suggestions.map((s, idx) => (
+            {suggestions.map((s) => (
               <li
                 key={s.place_id}
                 className="px-4 py-2 cursor-pointer hover:bg-teal-100 text-sm"

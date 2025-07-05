@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, Plus, Minus, Maximize2, RotateCcw, Locate, X, MapPin, Search, Navigation, Filter, Info, ArrowRight, Route, Car, Bike, Train, Bus, Building, Trees, Droplets } from 'lucide-react';
+import { Layers, Plus, Minus, Maximize2, RotateCcw, Locate, X, MapPin, Search, Navigation, Filter, ArrowRight, Route, Car, Building, Bike, Bus } from 'lucide-react';
 import { Property } from '../types';
 import { useLanguage } from '../hooks/useLanguage';
 import Map from 'ol/Map';
@@ -9,14 +9,13 @@ import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
-import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { Point, LineString, Polygon } from 'ol/geom';
+import { fromLonLat } from 'ol/proj';
+import { Point } from 'ol/geom';
 import { Feature } from 'ol';
 import { Style, Icon, Text, Fill, Stroke, Circle } from 'ol/style';
-import { Select, defaults as defaultInteractions, DragPan, MouseWheelZoom, Draw, Modify } from 'ol/interaction';
-import { click, pointerMove } from 'ol/events/condition';
+import { Select, defaults as defaultInteractions } from 'ol/interaction';
+import { click } from 'ol/events/condition';
 import { ScaleLine, defaults as defaultControls, ZoomSlider, FullScreen, Attribution, MousePosition } from 'ol/control';
-import { unByKey } from 'ol/Observable';
 import { createStringXY } from 'ol/coordinate';
 import 'ol/ol.css';
 
@@ -45,7 +44,7 @@ interface RouteResult {
 }
 
 // Custom marker style for properties
-const createPropertyStyle = (isActive: boolean, price?: number) => {
+const createPropertyStyle = (isActive: boolean) => {
   return new Style({
     image: new Circle({
       radius: 12,
@@ -119,22 +118,7 @@ const createSearchPinStyle = () => {
   });
 };
 
-// Route style
-const createRouteStyle = (mode: string) => {
-  const colors = {
-    driving: '#3b82f6',
-    walking: '#10b981',
-    cycling: '#f59e0b',
-    transit: '#8b5cf6'
-  };
-  
-  return new Style({
-    stroke: new Stroke({
-      color: colors[mode as keyof typeof colors] || '#3b82f6',
-      width: 4
-    })
-  });
-};
+
 
 // Enhanced Search Bar Component with Routing
 const SearchBar: React.FC<{
@@ -142,7 +126,7 @@ const SearchBar: React.FC<{
   onResultSelect: (result: SearchResult) => void;
   onClear: () => void;
   onRouteRequest?: (from: string, to: string, mode: string) => void;
-}> = ({ onSearch, onResultSelect, onClear, onRouteRequest }) => {
+}> = ({ onSearch, onResultSelect, onClear }) => {
   const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -294,7 +278,7 @@ const MapControls: React.FC<{
   onTogglePOI: () => void;
   onToggleBuildings: () => void;
   setSearchPin: (pin: { lat: number; lng: number }) => void;
-}> = ({ map, onToggleMapStyle, onSearchLocation, onShowHeatmap, onToggleTraffic, onTogglePOI, onToggleBuildings, setSearchPin }) => {
+}> = ({ map, onToggleMapStyle, onShowHeatmap, onToggleTraffic, onTogglePOI, onToggleBuildings, setSearchPin }) => {
   const { t } = useLanguage();
 
   const handleZoomIn = () => {
@@ -546,12 +530,11 @@ const MapView: React.FC<MapViewProps> = ({
         const isCluster = feature.get('isCluster');
         const count = feature.get('count');
         const isActive = feature.get('isActive');
-        const price = feature.get('price');
         
         if (isCluster) {
           return createClusterStyle(count);
         }
-        return createPropertyStyle(isActive, price);
+        return createPropertyStyle(isActive);
       }
     });
     vectorLayerRef.current = vectorLayer;
@@ -712,20 +695,19 @@ const MapView: React.FC<MapViewProps> = ({
     }, {} as Record<string, Property[]>);
 
     // Add features to map
-    Object.entries(groupedProperties).forEach(([key, groupProperties]) => {
+    Object.entries(groupedProperties).forEach(([, groupProperties]) => {
       const property = groupProperties[0];
       const isCluster = groupProperties.length > 1;
-      const isActive = selectedProperty ? groupProperties.some(p => p.id === selectedProperty) : false;
+              const isActive = selectedProperty ? groupProperties.some(p => p.id === selectedProperty) : false;
 
-      const feature = new Feature({
-        geometry: new Point(fromLonLat([property.location.coordinates.lng, property.location.coordinates.lat])),
-        propertyId: property.id,
-        isCluster,
-        count: groupProperties.length,
-        isActive,
-        price: property.price,
-        properties: groupProperties
-      });
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([property.location.coordinates.lng, property.location.coordinates.lat])),
+          propertyId: property.id,
+          isCluster,
+          count: groupProperties.length,
+          isActive,
+          properties: groupProperties
+        });
 
       vectorSourceRef.current?.addFeature(feature);
 
@@ -747,7 +729,7 @@ const MapView: React.FC<MapViewProps> = ({
       searchFeature.setStyle(createSearchPinStyle());
       vectorSourceRef.current?.addFeature(searchFeature);
     }
-  }, [properties, selectedProperty, showHeatmap, searchPin]);
+  }, [properties, selectedProperty, showHeatmap, searchPin, onPropertySelect]);
 
   // Handle map style toggle
   const handleToggleMapStyle = () => {
@@ -910,26 +892,7 @@ const MapView: React.FC<MapViewProps> = ({
     setShowBuildings(!showBuildings);
   };
 
-  // Handle route calculation
-  const handleRouteRequest = async (from: string, to: string, mode: string) => {
-    try {
-      // Using OpenRouteService API for routing
-      const response = await fetch(
-        `https://api.openrouteservice.org/v2/directions/${mode}?api_key=YOUR_API_KEY&start=${from}&end=${to}`
-      );
-      const data = await response.json();
-      if (data.features && data.features[0]) {
-        setRouteData({
-          distance: data.features[0].properties.segments[0].distance,
-          duration: data.features[0].properties.segments[0].duration,
-          geometry: data.features[0].geometry.coordinates,
-          mode: mode as 'driving' | 'walking' | 'cycling' | 'transit'
-        });
-      }
-    } catch (error) {
-      console.error('Routing error:', error);
-    }
-  };
+
 
   // Get property for popup
   const getPropertyForPopup = (propertyId: string) => {

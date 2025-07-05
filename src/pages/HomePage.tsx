@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { useInView } from 'react-intersection-observer';
 import SearchFilters from '../components/SearchFilters';
 import PropertyCard from '../components/PropertyCard';
-import MapView from '../components/MapView';
 import SimpleMapTest from '../components/SimpleMapTest';
 import { SearchFilters as SearchFiltersType } from '../types';
 import { mockProperties } from '../data/mockProperties';
