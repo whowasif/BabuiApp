@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import LocationSearch from '../components/LocationSearch';
 import BangladeshLocationSearch from '../components/BangladeshLocationSearch';
 import LocationPicker from '../components/LocationPicker';
+import { usePropertyStore } from '../stores/propertyStore';
+import { Property } from '../types';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
@@ -107,6 +109,7 @@ type AllowedPropertyType = 'apartment' | 'room' | 'office' | 'shop' | 'parking';
 const AddPropertyPage: React.FC = () => {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
+  const { addProperty } = usePropertyStore();
   const [formData, setFormData] = useState<PropertyFormData>({
     title: '',
     titleBn: '',
@@ -234,14 +237,95 @@ const AddPropertyPage: React.FC = () => {
     e.preventDefault();
     console.log('Property submitted:', formData);
     
+    // Create new property object
+    const newProperty: Property = {
+      id: `property-${Date.now()}`, // Generate unique ID
+      title: formData.title,
+      titleBn: formData.titleBn,
+      description: formData.description,
+      descriptionBn: formData.descriptionBn,
+      price: formData.price,
+      currency: 'BDT',
+      type: formData.type,
+      bedrooms: formData.bedrooms,
+      bathrooms: formData.bathrooms,
+      area: formData.area,
+      images: formData.images.map((file, index) => ({
+        id: `img-${Date.now()}-${index}`,
+        src: URL.createObjectURL(file),
+        alt: formData.title,
+        altBn: formData.titleBn,
+        priority: index === 0
+      })),
+      location: formData.location ? {
+        address: formData.address,
+        addressBn: formData.addressBn,
+        city: formData.city,
+        area: formData.area_name,
+        areaBn: formData.area_name,
+        coordinates: {
+          lat: formData.location.lat,
+          lng: formData.location.lng
+        },
+        nearbyPlaces: [],
+        nearbyPlacesBn: []
+      } : {
+        address: formData.address,
+        addressBn: formData.addressBn,
+        city: formData.city,
+        area: formData.area_name,
+        areaBn: formData.area_name,
+        coordinates: { lat: 23.8103, lng: 90.4125 }, // Default to Dhaka
+        nearbyPlaces: [],
+        nearbyPlacesBn: []
+      },
+      amenities: formData.amenities,
+      amenitiesBn: formData.amenities.map(amenity => {
+        const amenityMap: Record<string, string> = {
+          'ac': 'এয়ার কন্ডিশনার',
+          'parking': 'পার্কিং',
+          'security': 'নিরাপত্তা',
+          'elevator': 'লিফট',
+          'internet': 'ইন্টারনেট',
+          'kitchen': 'রান্নাঘর',
+          'balcony': 'বারান্দা',
+          'furnished': 'সাজানো',
+          'gas': 'গ্যাস',
+          'generator': 'জেনারেটর',
+          'cctv': 'সিসিটিভি',
+          'gym': 'জিম'
+        };
+        return amenityMap[amenity] || amenity;
+      }),
+      landlord: {
+        id: `landlord-${Date.now()}`,
+        name: formData.contactName,
+        nameBn: formData.contactNameBn,
+        phone: formData.contactPhone,
+        email: formData.contactEmail,
+        rating: 0,
+        verified: false
+      },
+      available: true,
+      availableFrom: new Date(formData.availableFrom),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      genderPreference: formData.genderPreference,
+      furnishing: formData.furnishing,
+      parking: formData.parking
+    };
+    
+    // Add property to store
+    addProperty(newProperty);
+    
     // Show success modal
     setShowSuccessModal(true);
     
     // Simulate API call delay
     setTimeout(() => {
       setShowSuccessModal(false);
-      // Navigate to property detail page (using mock ID for demo)
-      navigate('/property/new-property-id');
+      // Navigate to property detail page
+      navigate(`/property/${newProperty.id}`);
     }, 2000);
   };
 

@@ -28,7 +28,7 @@ export const mockProperties: Property[] = [
       city: 'dhaka',
       area: 'Gulshan',
       areaBn: 'গুলশান',
-      coordinates: { lat: 30, lng: 40 },
+      coordinates: { lat: 23.7937, lng: 90.4066 },
       nearbyPlaces: ['Gulshan Circle 1', 'Gulshan Lake'],
       nearbyPlacesBn: ['গুলশান সার্কেল ১', 'গুলশান লেক']
     },
@@ -75,7 +75,7 @@ export const mockProperties: Property[] = [
       city: 'dhaka',
       area: 'Dhanmondi',
       areaBn: 'ধানমন্ডি',
-      coordinates: { lat: 45, lng: 35 },
+      coordinates: { lat: 23.7465, lng: 90.3760 },
       nearbyPlaces: ['Dhanmondi Lake', 'TSC'],
       nearbyPlacesBn: ['ধানমন্ডি লেক', 'টিএসসি']
     },
@@ -121,7 +121,7 @@ export const mockProperties: Property[] = [
       city: 'chittagong',
       area: 'CDA Avenue',
       areaBn: 'সিডিএ এভিনিউ',
-      coordinates: { lat: 65, lng: 70 },
+      coordinates: { lat: 22.3419, lng: 91.8132 },
       nearbyPlaces: ['Port City', 'Beach'],
       nearbyPlacesBn: ['বন্দর শহর', 'সৈকত']
     },
@@ -167,7 +167,7 @@ export const mockProperties: Property[] = [
       city: 'dhaka',
       area: 'Uttara',
       areaBn: 'উত্তরা',
-      coordinates: { lat: 25, lng: 45 },
+      coordinates: { lat: 23.8709, lng: 90.3695 },
       nearbyPlaces: ['Uttara University', 'Shopping Mall'],
       nearbyPlacesBn: ['উত্তরা বিশ্ববিদ্যালয়', 'শপিং মল']
     },
@@ -185,5 +185,97 @@ export const mockProperties: Property[] = [
     availableFrom: new Date('2024-02-10'),
     createdAt: new Date('2024-01-12'),
     updatedAt: new Date('2024-01-12')
+  },
+  {
+    id: '5',
+    title: 'Modern Office Space in Banani',
+    titleBn: 'বনানীতে আধুনিক অফিস স্পেস',
+    description: 'Professional office space with modern amenities',
+    descriptionBn: 'আধুনিক সুবিধা সহ পেশাদার অফিস স্পেস',
+    price: 80000,
+    currency: 'BDT',
+    type: 'office',
+    bedrooms: 2,
+    bathrooms: 2,
+    area: 1500,
+    images: [
+      {
+        id: '5-1',
+        src: 'https://images.pexels.com/photos/3183150/pexels-photo-3183150.jpeg',
+        alt: 'Modern office space',
+        altBn: 'আধুনিক অফিস স্পেস',
+        priority: false
+      }
+    ],
+    location: {
+      address: 'Road 11, Banani',
+      addressBn: 'রোড ১১, বনানী',
+      city: 'dhaka',
+      area: 'Banani',
+      areaBn: 'বনানী',
+      coordinates: { lat: 23.7941, lng: 90.4065 },
+      nearbyPlaces: ['Banani Club', 'Gulshan 2'],
+      nearbyPlacesBn: ['বনানী ক্লাব', 'গুলশান ২']
+    },
+    amenities: ['Air Conditioning', 'Security', 'CCTV', 'Parking'],
+    amenitiesBn: ['এয়ার কন্ডিশনার', 'নিরাপত্তা', 'সিসিটিভি', 'পার্কিং'],
+    landlord: {
+      id: 'l5',
+      name: 'Ahmed Khan',
+      nameBn: 'আহমেদ খান',
+      phone: '+8801777888999',
+      rating: 4.8,
+      verified: true
+    },
+    available: true,
+    availableFrom: new Date('2024-02-01'),
+    createdAt: new Date('2024-01-20'),
+    updatedAt: new Date('2024-01-20')
+  },
+  {
+    id: '6',
+    title: 'Shop Space in Mirpur',
+    titleBn: 'মিরপুরে দোকানের জায়গা',
+    description: 'Prime location shop space for business',
+    descriptionBn: 'ব্যবসার জন্য প্রধান অবস্থানের দোকানের জায়গা',
+    price: 35000,
+    currency: 'BDT',
+    type: 'shop',
+    bedrooms: 1,
+    bathrooms: 1,
+    area: 800,
+    images: [
+      {
+        id: '6-1',
+        src: 'https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg',
+        alt: 'Shop space',
+        altBn: 'দোকানের জায়গা',
+        priority: false
+      }
+    ],
+    location: {
+      address: 'Mirpur 10, Dhaka',
+      addressBn: 'মিরপুর ১০, ঢাকা',
+      city: 'dhaka',
+      area: 'Mirpur',
+      areaBn: 'মিরপুর',
+      coordinates: { lat: 23.8067, lng: 90.3683 },
+      nearbyPlaces: ['Mirpur Stadium', 'Shopping Complex'],
+      nearbyPlacesBn: ['মিরপুর স্টেডিয়াম', 'শপিং কমপ্লেক্স']
+    },
+    amenities: ['Security', 'Parking', 'CCTV'],
+    amenitiesBn: ['নিরাপত্তা', 'পার্কিং', 'সিসিটিভি'],
+    landlord: {
+      id: 'l6',
+      name: 'Rashid Ali',
+      nameBn: 'রশিদ আলী',
+      phone: '+8801666777888',
+      rating: 4.3,
+      verified: true
+    },
+    available: true,
+    availableFrom: new Date('2024-02-15'),
+    createdAt: new Date('2024-01-25'),
+    updatedAt: new Date('2024-01-25')
   }
 ];

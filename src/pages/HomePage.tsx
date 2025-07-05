@@ -2,13 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { useInView } from 'react-intersection-observer';
 import SearchFilters from '../components/SearchFilters';
 import PropertyCard from '../components/PropertyCard';
-import SimpleMapTest from '../components/SimpleMapTest';
-import { SearchFilters as SearchFiltersType } from '../types';
-import { mockProperties } from '../data/mockProperties';
+import PropertiesMap from '../components/PropertiesMap';
+import { SearchFilters as SearchFiltersType, Property } from '../types';
+import { usePropertyStore } from '../stores/propertyStore';
 import { useLanguage } from '../hooks/useLanguage';
 
 const HomePage: React.FC = () => {
   const { t } = useLanguage();
+  const { properties } = usePropertyStore();
   const [filters, setFilters] = useState<SearchFiltersType>({});
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
@@ -24,7 +25,7 @@ const HomePage: React.FC = () => {
 
   // Filter properties based on search criteria
   const filteredProperties = useMemo(() => {
-    return mockProperties.filter(property => {
+    return properties.filter((property: Property) => {
       // Property ID search
       if (filters.propertyId && !property.id.toLowerCase().includes(filters.propertyId.toLowerCase())) {
         return false;
@@ -290,7 +291,12 @@ const HomePage: React.FC = () => {
         ) : (
           /* Map View with enhanced styling */
           <div className="bg-white rounded-2xl shadow-lg border border-amber-200 overflow-hidden">
-            <SimpleMapTest />
+            <PropertiesMap 
+              properties={displayedProperties}
+              onPropertyClick={(property) => handlePropertySelect(property.id)}
+              selectedPropertyId={selectedProperty}
+              height="600px"
+            />
           </div>
         )}
       </main>
