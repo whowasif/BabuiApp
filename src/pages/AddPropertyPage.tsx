@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Camera, MapPin, Home, Bed, X, Check, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Camera, MapPin, Home, Bed, X, Check, ArrowLeft, Search, Navigation, Filter, Info, ArrowRight, Route, Car, Bike, Train, Bus, Building, Trees, Droplets, Layers, Plus, Minus, Maximize2, RotateCcw, Locate } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useNavigate } from 'react-router-dom';
 import LocationSearch from '../components/LocationSearch';
@@ -11,11 +11,57 @@ import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import OSM from 'ol/source/OSM';
-import { fromLonLat } from 'ol/proj';
-import { Point } from 'ol/geom';
+import XYZ from 'ol/source/XYZ';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
+import { Point, LineString, Polygon } from 'ol/geom';
 import { Feature } from 'ol';
-import { Style, Circle, Fill, Stroke } from 'ol/style';
+import { Style, Circle, Fill, Stroke, Icon, Text } from 'ol/style';
+import { Select, defaults as defaultInteractions, DragPan, MouseWheelZoom, Draw, Modify } from 'ol/interaction';
+import { click, pointerMove } from 'ol/events/condition';
+import { ScaleLine, defaults as defaultControls, ZoomSlider, FullScreen, Attribution, MousePosition } from 'ol/control';
+import { unByKey } from 'ol/Observable';
+import { createStringXY } from 'ol/coordinate';
 import 'ol/ol.css';
+
+// Search result interface
+interface SearchResult {
+  place_id: string;
+  display_name: string;
+  lat: string;
+  lon: string;
+  type: string;
+  importance: number;
+}
+
+// Route result interface
+interface RouteResult {
+  distance: number;
+  duration: number;
+  geometry: number[][];
+  mode: 'driving' | 'walking' | 'cycling' | 'transit';
+}
+
+// Property location with enhanced OpenStreetMap data
+interface PropertyLocation {
+  lat: number;
+  lng: number;
+  address?: string;
+  osm_id?: string;
+  place_type?: string;
+  nearby_amenities?: {
+    schools: number;
+    hospitals: number;
+    markets: number;
+    transport: number;
+    restaurants: number;
+  };
+  accessibility_score?: number;
+  neighborhood_info?: {
+    population_density?: string;
+    crime_rate?: string;
+    air_quality?: string;
+  };
+}
 
 interface PropertyFormData {
   title: string;
@@ -31,11 +77,7 @@ interface PropertyFormData {
   area_name: string;
   address: string;
   addressBn: string;
-  location?: {
-    lat: number;
-    lng: number;
-    address?: string;
-  };
+  location?: PropertyLocation;
   amenities: string[];
   images: File[];
   genderPreference: 'male' | 'female' | 'any';
@@ -57,6 +99,14 @@ interface PropertyFormData {
   balconyYesNo?: string;
   parkingType?: string;
   quantity?: number;
+  // OpenStreetMap specific fields
+  osm_features?: {
+    nearby_transport?: string[];
+    nearby_amenities?: string[];
+    building_type?: string;
+    land_use?: string;
+    accessibility_features?: string[];
+  };
 }
 
 // Define a type for allowed property types
@@ -100,8 +150,30 @@ const AddPropertyPage: React.FC = () => {
     bathroomYesNo: undefined,
     balconyYesNo: undefined,
     parkingType: undefined,
-    quantity: undefined
+    quantity: undefined,
+    osm_features: {
+      nearby_transport: [],
+      nearby_amenities: [],
+      building_type: '',
+      land_use: '',
+      accessibility_features: []
+    }
   });
+
+  // OpenStreetMap specific states
+  const [mapStyle, setMapStyle] = useState<'default' | 'satellite' | 'terrain' | 'dark' | 'cycle' | 'transport'>('default');
+  const [showNearbyAmenities, setShowNearbyAmenities] = useState(false);
+  const [showTransportRoutes, setShowTransportRoutes] = useState(false);
+  const [showBuildingInfo, setShowBuildingInfo] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [accessibilityFeatures, setAccessibilityFeatures] = useState<string[]>([]);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<Map | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -129,20 +201,6 @@ const AddPropertyPage: React.FC = () => {
     { value: 'cctv', labelBn: 'সিসিটিভি', labelEn: 'CCTV' },
     { value: 'gym', labelBn: 'জিম', labelEn: 'Gym' }
   ];
-
-  // Gender and furnishing options are defined but not used in current implementation
-  // const genderOptions = [
-  //   { value: 'any', labelBn: 'যেকোনো', labelEn: 'Any' },
-  //   { value: 'male', labelBn: 'পুরুষ', labelEn: 'Male Only' },
-  //   { value: 'female', labelBn: 'মহিলা', labelEn: 'Female Only' },
-  //   { value: 'family', labelBn: 'পরিবার', labelEn: 'Family' }
-  // ];
-
-  // const furnishingOptions = [
-  //   { value: 'unfurnished', labelBn: 'সাজানো নয়', labelEn: 'Unfurnished' },
-  //   { value: 'semi-furnished', labelBn: 'আংশিক সাজানো', labelEn: 'Semi-Furnished' },
-  //   { value: 'furnished', labelBn: 'সাজানো', labelEn: 'Furnished' }
-  // ];
 
   const propertyTypeConfig: Record<AllowedPropertyType, { fields: string[]; amenities: string[] }> = {
     apartment: {
@@ -222,60 +280,441 @@ const AddPropertyPage: React.FC = () => {
     }
   };
 
-  // Initialize OpenLayers map for location preview
-  useEffect(() => {
-    if (formData.location && currentStep === 5) {
-      const mapElement = document.getElementById('property-location-map');
-      if (mapElement) {
-        // Clear any existing map
-        mapElement.innerHTML = '';
-        
-        // Create vector source for marker
-        const vectorSource = new VectorSource({
-          features: [
-            new Feature({
-              geometry: new Point(fromLonLat([formData.location.lng, formData.location.lat]))
-            })
-          ]
-        });
+  // Enhanced OpenStreetMap Map Component
+  const EnhancedPropertyMap: React.FC<{
+    location?: PropertyLocation;
+    propertyType: string;
+    onLocationSelect?: (location: PropertyLocation) => void;
+  }> = ({ location, propertyType, onLocationSelect }) => {
+    const mapRef = useRef<HTMLDivElement>(null);
+    const mapInstanceRef = useRef<Map | null>(null);
+    const vectorSourceRef = useRef<VectorSource | null>(null);
+    const amenitiesSourceRef = useRef<VectorSource | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showResults, setShowResults] = useState(false);
+    const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-        // Create vector layer for marker
-        const vectorLayer = new VectorLayer({
-          source: vectorSource,
-          style: new Style({
-            image: new Circle({
-              radius: 8,
-              fill: new Fill({ color: '#ef4444' }),
-              stroke: new Stroke({ color: '#ffffff', width: 2 })
-            })
-          })
-        });
-
-        // Create tile layer
-        const tileLayer = new TileLayer({
-          source: new OSM()
-        });
-
-        // Create map
-        const map = new Map({
-          target: mapElement,
-          layers: [tileLayer, vectorLayer],
-          view: new View({
-            center: fromLonLat([formData.location.lng, formData.location.lat]),
-            zoom: 15,
-            minZoom: 8,
-            maxZoom: 18
-          }),
-          controls: [] // Remove default controls for preview
-        });
-
-        // Cleanup function
-        return () => {
-          map.setTarget(undefined);
-        };
+    // Debounced search for the map search bar
+    useEffect(() => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
       }
-    }
-  }, [formData.location, currentStep]);
+      if (searchQuery.trim().length < 2) {
+        setSearchResults([]);
+        setShowResults(false);
+        return;
+      }
+      searchTimeoutRef.current = setTimeout(async () => {
+        setIsSearching(true);
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&countrycodes=bd&limit=8&addressdetails=1`
+          );
+          const data = await response.json();
+          setSearchResults(data);
+          setShowResults(true);
+        } catch (error) {
+          setSearchResults([]);
+        } finally {
+          setIsSearching(false);
+        }
+      }, 300);
+      return () => {
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+      };
+    }, [searchQuery]);
+
+    // Handle search result selection
+    const handleResultClick = async (result: SearchResult) => {
+      const lat = parseFloat(result.lat);
+      const lng = parseFloat(result.lon);
+      if (mapInstanceRef.current) {
+        const coordinate = fromLonLat([lng, lat]);
+        mapInstanceRef.current.getView().animate({
+          center: coordinate,
+          zoom: 15,
+          duration: 1000
+        });
+      }
+      // Reverse geocode to get address
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+        );
+        const data = await response.json();
+        const address = data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        if (onLocationSelect) {
+          onLocationSelect({ lat, lng, address });
+        }
+      } catch (error) {
+        if (onLocationSelect) {
+          onLocationSelect({ lat, lng });
+        }
+      }
+      setSearchQuery(result.display_name);
+      setShowResults(false);
+    };
+
+    // Initialize map only once
+    useEffect(() => {
+      if (!mapRef.current || mapInstanceRef.current) return;
+
+      // Create vector source for property marker
+      const vectorSource = new VectorSource();
+      vectorSourceRef.current = vectorSource;
+
+      // Create vector source for amenities
+      const amenitiesSource = new VectorSource();
+      amenitiesSourceRef.current = amenitiesSource;
+
+      // Create vector layer for property marker
+      const vectorLayer = new VectorLayer({
+        source: vectorSource,
+        style: new Style({
+          image: new Circle({
+            radius: 12,
+            fill: new Fill({ color: '#ef4444' }),
+            stroke: new Stroke({ color: '#ffffff', width: 2 })
+          }),
+          text: new Text({
+            text: '🏠',
+            font: '16px Arial',
+            offsetY: -8
+          })
+        })
+      });
+
+      // Create vector layer for amenities
+      const amenitiesLayer = new VectorLayer({
+        source: amenitiesSource,
+        style: (feature) => {
+          const type = feature.get('type');
+          const colors: Record<string, string> = {
+            school: '#3b82f6',
+            hospital: '#ef4444',
+            market: '#f59e0b',
+            transport: '#10b981',
+            restaurant: '#8b5cf6'
+          };
+          return new Style({
+            image: new Circle({
+              radius: 6,
+              fill: new Fill({ color: colors[type] || '#6b7280' }),
+              stroke: new Stroke({ color: '#ffffff', width: 1 })
+            }),
+            text: new Text({
+              text: feature.get('name') || '',
+              font: '10px Arial',
+              fill: new Fill({ color: '#1f2937' }),
+              offsetY: -12
+            })
+          });
+        }
+      });
+
+      // Create tile layer
+      const tileLayer = new TileLayer({
+        source: new OSM()
+      });
+
+      // Create map
+      const map = new Map({
+        target: mapRef.current,
+        layers: [tileLayer, vectorLayer, amenitiesLayer],
+        view: new View({
+          center: location ? fromLonLat([location.lng, location.lat]) : fromLonLat([90.4125, 23.8103]),
+          zoom: location ? 15 : 12,
+          minZoom: 8,
+          maxZoom: 18
+        }),
+        controls: defaultControls().extend([
+          new ScaleLine({ units: 'metric' }),
+          new ZoomSlider(),
+          new FullScreen(),
+          new Attribution({ collapsible: false })
+        ]),
+        interactions: defaultInteractions().extend([
+          new Select({
+            condition: click,
+            layers: [vectorLayer, amenitiesLayer]
+          })
+        ])
+      });
+
+      mapInstanceRef.current = map;
+
+      // Handle map click
+      if (onLocationSelect) {
+        map.on('click', async (event) => {
+          const coordinate = event.coordinate;
+          const [lng, lat] = toLonLat(coordinate);
+          try {
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+            );
+            const data = await response.json();
+            const address = data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+            const newLocation: PropertyLocation = { lat, lng, address };
+            onLocationSelect(newLocation);
+          } catch (error) {
+            console.error('Error getting address:', error);
+            const newLocation: PropertyLocation = { lat, lng };
+            onLocationSelect(newLocation);
+          }
+        });
+      }
+
+      return () => {
+        map.setTarget(undefined);
+        mapInstanceRef.current = null;
+      };
+    }, [onLocationSelect]);
+
+    // Update markers and view when location changes
+    useEffect(() => {
+      if (!vectorSourceRef.current || !amenitiesSourceRef.current || !mapInstanceRef.current) return;
+      vectorSourceRef.current.clear();
+      amenitiesSourceRef.current.clear();
+      if (location) {
+        // Add property marker
+        const coordinate = fromLonLat([location.lng, location.lat]);
+        const feature = new Feature({ geometry: new Point(coordinate) });
+        vectorSourceRef.current.addFeature(feature);
+        // Add nearby amenities if available
+        if (location.nearby_amenities) {
+          const amenities = location.nearby_amenities;
+          const radius = 0.005;
+          Object.entries(amenities).forEach(([type, count]) => {
+            for (let i = 0; i < Math.min(count, 3); i++) {
+              const angle = (i / Math.min(count, 3)) * 2 * Math.PI;
+              const distance = radius * (0.3 + Math.random() * 0.7);
+              const amenityLat = location.lat + distance * Math.cos(angle);
+              const amenityLng = location.lng + distance * Math.sin(angle);
+              const amenityFeature = new Feature({
+                geometry: new Point(fromLonLat([amenityLng, amenityLat])),
+                type: type,
+                name: type.charAt(0).toUpperCase() + type.slice(1)
+              });
+              amenitiesSourceRef.current?.addFeature(amenityFeature);
+            }
+          });
+        }
+        // Center map on location
+        mapInstanceRef.current.getView().animate({
+          center: coordinate,
+          zoom: 15,
+          duration: 1000
+        });
+      }
+    }, [location]);
+
+    return (
+      <div className="relative h-80">
+        {/* Map Search Bar Overlay */}
+        <div className="absolute top-4 left-1/2 z-[1001] w-full max-w-md -translate-x-1/2">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search for a location..."
+              className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white shadow-sm"
+            />
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+              <Search size={18} />
+            </div>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-10 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-teal-600"
+              disabled={isSearching}
+            >
+              {isSearching ? (
+                <div className="w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <ArrowRight size={16} />
+              )}
+            </button>
+          </div>
+          {/* Search Results Dropdown */}
+          {showResults && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto z-[1001]">
+              {searchResults.map((result) => (
+                <button
+                  type="button"
+                  key={result.place_id}
+                  onClick={() => handleResultClick(result)}
+                  className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-900 line-clamp-1">
+                        {result.display_name.split(',')[0]}
+                      </div>
+                      <div className="text-xs text-gray-500 line-clamp-2">
+                        {result.display_name}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {result.type} • Importance: {result.importance.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div ref={mapRef} className="w-full h-full" />
+        {/* Map Controls */}
+        <div className="absolute top-4 right-4 flex flex-col gap-2 z-[1000]">
+          <button
+            type="button"
+            onClick={() => {
+              if (mapInstanceRef.current) {
+                const view = mapInstanceRef.current.getView();
+                const zoom = view.getZoom() || 0;
+                if (zoom < 18) {
+                  view.animate({ zoom: zoom + 1, duration: 250 });
+                }
+              }
+            }}
+            className="bg-white p-2 rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            title="Zoom In"
+          >
+            <Plus size={16} className="text-gray-700" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (mapInstanceRef.current) {
+                const view = mapInstanceRef.current.getView();
+                const zoom = view.getZoom() || 0;
+                if (zoom > 8) {
+                  view.animate({ zoom: zoom - 1, duration: 250 });
+                }
+              }
+            }}
+            className="bg-white p-2 rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            title="Zoom Out"
+          >
+            <Minus size={16} className="text-gray-700" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (mapInstanceRef.current && location) {
+                mapInstanceRef.current.getView().animate({
+                  center: fromLonLat([location.lng, location.lat]),
+                  zoom: 15,
+                  duration: 1000
+                });
+              }
+            }}
+            className="bg-white p-2 rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            title="Reset View"
+          >
+            <RotateCcw size={16} className="text-gray-700" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser.');
+                return;
+              }
+              navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                  const lat = position.coords.latitude;
+                  const lng = position.coords.longitude;
+                  if (mapInstanceRef.current) {
+                    const coordinate = fromLonLat([lng, lat]);
+                    mapInstanceRef.current.getView().animate({
+                      center: coordinate,
+                      zoom: 15,
+                      duration: 1000
+                    });
+                  }
+                  // Reverse geocode to get address
+                  try {
+                    const response = await fetch(
+                      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+                    );
+                    const data = await response.json();
+                    const address = data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                    if (onLocationSelect) {
+                      onLocationSelect({ lat, lng, address });
+                    }
+                  } catch (error) {
+                    if (onLocationSelect) {
+                      onLocationSelect({ lat, lng });
+                    }
+                  }
+                },
+                (error) => {
+                  alert('Unable to retrieve your location.');
+                }
+              );
+            }}
+            className="bg-white p-2 rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            title="Current Location"
+          >
+            <Locate size={16} className="text-gray-700" />
+          </button>
+        </div>
+        {/* Property Type Indicator */}
+        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg border border-gray-200 p-2 z-[1000]">
+          <div className="flex items-center gap-2">
+            {propertyType === 'apartment' && <Building size={16} className="text-blue-500" />}
+            {propertyType === 'room' && <Bed size={16} className="text-green-500" />}
+            {propertyType === 'office' && <Building size={16} className="text-purple-500" />}
+            {propertyType === 'shop' && <Building size={16} className="text-orange-500" />}
+            {propertyType === 'parking' && <Car size={16} className="text-gray-500" />}
+            <span className="text-sm font-medium text-gray-700 capitalize">
+              {propertyType}
+            </span>
+          </div>
+        </div>
+        {/* Location Info */}
+        {location && (
+          <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg border border-gray-200 p-3 z-[1000] max-w-xs">
+            <div className="text-xs font-semibold text-gray-700 mb-2">
+              {t('location-info', 'অবস্থান তথ্য', 'Location Information')}
+            </div>
+            <div className="space-y-1 text-xs text-gray-600">
+              <div className="line-clamp-2">{location.address}</div>
+              {location.accessibility_score && (
+                <div className="flex items-center gap-1">
+                  <Navigation size={12} className="text-green-500" />
+                  <span>Accessibility: {location.accessibility_score}%</span>
+                </div>
+              )}
+              {location.nearby_amenities && (
+                <div className="flex items-center gap-1">
+                  <Building size={12} className="text-blue-500" />
+                  <span>
+                    {Object.values(location.nearby_amenities).reduce((sum: number, count: any) => sum + (count as number), 0)} nearby amenities
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderStep = () => {
     switch (currentStep) {
@@ -571,12 +1010,114 @@ const AddPropertyPage: React.FC = () => {
                   placeholder="john@example.com"
                 />
               </div>
-              {/* Location Picker with search and map */}
-              <LocationPicker
-                onLocationSelect={(location) => handleInputChange('location', location)}
-                initialLocation={formData.location}
-                height="300px"
-              />
+              {/* Enhanced OpenStreetMap Location Search */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('property-location', 'সম্পত্তির অবস্থান', 'Property Location')}
+                  </label>
+                  <EnhancedPropertyMap
+                    location={formData.location}
+                    propertyType={formData.type}
+                    onLocationSelect={(location) => handleInputChange('location', location)}
+                  />
+                </div>
+
+                {/* Location Details */}
+                {formData.location && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-gray-900">
+                      {t('location-details', 'অবস্থানের বিস্তারিত', 'Location Details')}
+                    </h4>
+                    
+                    {formData.location.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin size={16} className="text-gray-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">{formData.location.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.accessibility_score && (
+                      <div className="flex items-center gap-2">
+                        <Navigation size={16} className="text-green-500" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">
+                            {t('accessibility-score', 'সুবিধাজনকতা স্কোর', 'Accessibility Score')}: {formData.location.accessibility_score}%
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${formData.location.accessibility_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.nearby_amenities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Building size={16} className="text-blue-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('nearby-amenities', 'নিকটবর্তী সুবিধা', 'Nearby Amenities')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Object.entries(formData.location.nearby_amenities).map(([type, count]) => (
+                            <div key={type} className="flex items-center gap-2 text-xs">
+                              {type === 'schools' && <Building size={12} className="text-blue-500" />}
+                              {type === 'hospitals' && <Building size={12} className="text-red-500" />}
+                              {type === 'markets' && <Building size={12} className="text-orange-500" />}
+                              {type === 'transport' && <Car size={12} className="text-green-500" />}
+                              {type === 'restaurants' && <Building size={12} className="text-purple-500" />}
+                              <span className="text-gray-600 capitalize">{type}: {count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.neighborhood_info && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Info size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('neighborhood-info', 'পাড়ার তথ্য', 'Neighborhood Information')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          {formData.location.neighborhood_info.population_density && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('population-density', 'জনসংখ্যার ঘনত্ব', 'Population Density')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.population_density}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.crime_rate && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('crime-rate', 'অপরাধের হার', 'Crime Rate')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.crime_rate}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.air_quality && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('air-quality', 'বায়ুর মান', 'Air Quality')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.air_quality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         } else if (formData.type === 'room') {
@@ -827,12 +1368,114 @@ const AddPropertyPage: React.FC = () => {
                   placeholder="john@example.com"
                 />
               </div>
-              {/* Location Picker with search and map */}
-              <LocationPicker
-                onLocationSelect={(location) => handleInputChange('location', location)}
-                initialLocation={formData.location}
-                height="300px"
-              />
+              {/* Enhanced OpenStreetMap Location Search */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('property-location', 'সম্পত্তির অবস্থান', 'Property Location')}
+                  </label>
+                  <EnhancedPropertyMap
+                    location={formData.location}
+                    propertyType={formData.type}
+                    onLocationSelect={(location) => handleInputChange('location', location)}
+                  />
+                </div>
+
+                {/* Location Details */}
+                {formData.location && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-gray-900">
+                      {t('location-details', 'অবস্থানের বিস্তারিত', 'Location Details')}
+                    </h4>
+                    
+                    {formData.location.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin size={16} className="text-gray-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">{formData.location.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.accessibility_score && (
+                      <div className="flex items-center gap-2">
+                        <Navigation size={16} className="text-green-500" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">
+                            {t('accessibility-score', 'সুবিধাজনকতা স্কোর', 'Accessibility Score')}: {formData.location.accessibility_score}%
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${formData.location.accessibility_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.nearby_amenities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Building size={16} className="text-blue-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('nearby-amenities', 'নিকটবর্তী সুবিধা', 'Nearby Amenities')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Object.entries(formData.location.nearby_amenities).map(([type, count]) => (
+                            <div key={type} className="flex items-center gap-2 text-xs">
+                              {type === 'schools' && <Building size={12} className="text-blue-500" />}
+                              {type === 'hospitals' && <Building size={12} className="text-red-500" />}
+                              {type === 'markets' && <Building size={12} className="text-orange-500" />}
+                              {type === 'transport' && <Car size={12} className="text-green-500" />}
+                              {type === 'restaurants' && <Building size={12} className="text-purple-500" />}
+                              <span className="text-gray-600 capitalize">{type}: {count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.neighborhood_info && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Info size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('neighborhood-info', 'পাড়ার তথ্য', 'Neighborhood Information')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          {formData.location.neighborhood_info.population_density && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('population-density', 'জনসংখ্যার ঘনত্ব', 'Population Density')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.population_density}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.crime_rate && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('crime-rate', 'অপরাধের হার', 'Crime Rate')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.crime_rate}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.air_quality && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('air-quality', 'বায়ুর মান', 'Air Quality')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.air_quality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         } else if (formData.type === 'office') {
@@ -1057,12 +1700,114 @@ const AddPropertyPage: React.FC = () => {
                   placeholder="john@example.com"
                 />
               </div>
-              {/* Location Picker with search and map */}
-              <LocationPicker
-                onLocationSelect={(location) => handleInputChange('location', location)}
-                initialLocation={formData.location}
-                height="300px"
-              />
+              {/* Enhanced OpenStreetMap Location Search */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('property-location', 'সম্পত্তির অবস্থান', 'Property Location')}
+                  </label>
+                  <EnhancedPropertyMap
+                    location={formData.location}
+                    propertyType={formData.type}
+                    onLocationSelect={(location) => handleInputChange('location', location)}
+                  />
+                </div>
+
+                {/* Location Details */}
+                {formData.location && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-gray-900">
+                      {t('location-details', 'অবস্থানের বিস্তারিত', 'Location Details')}
+                    </h4>
+                    
+                    {formData.location.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin size={16} className="text-gray-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">{formData.location.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.accessibility_score && (
+                      <div className="flex items-center gap-2">
+                        <Navigation size={16} className="text-green-500" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">
+                            {t('accessibility-score', 'সুবিধাজনকতা স্কোর', 'Accessibility Score')}: {formData.location.accessibility_score}%
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${formData.location.accessibility_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.nearby_amenities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Building size={16} className="text-blue-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('nearby-amenities', 'নিকটবর্তী সুবিধা', 'Nearby Amenities')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Object.entries(formData.location.nearby_amenities).map(([type, count]) => (
+                            <div key={type} className="flex items-center gap-2 text-xs">
+                              {type === 'schools' && <Building size={12} className="text-blue-500" />}
+                              {type === 'hospitals' && <Building size={12} className="text-red-500" />}
+                              {type === 'markets' && <Building size={12} className="text-orange-500" />}
+                              {type === 'transport' && <Car size={12} className="text-green-500" />}
+                              {type === 'restaurants' && <Building size={12} className="text-purple-500" />}
+                              <span className="text-gray-600 capitalize">{type}: {count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.neighborhood_info && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Info size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('neighborhood-info', 'পাড়ার তথ্য', 'Neighborhood Information')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          {formData.location.neighborhood_info.population_density && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('population-density', 'জনসংখ্যার ঘনত্ব', 'Population Density')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.population_density}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.crime_rate && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('crime-rate', 'অপরাধের হার', 'Crime Rate')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.crime_rate}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.air_quality && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('air-quality', 'বায়ুর মান', 'Air Quality')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.air_quality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         } else if (formData.type === 'shop') {
@@ -1274,12 +2019,114 @@ const AddPropertyPage: React.FC = () => {
                   placeholder="john@example.com"
                 />
               </div>
-              {/* Location Picker with search and map */}
-              <LocationPicker
-                onLocationSelect={(location) => handleInputChange('location', location)}
-                initialLocation={formData.location}
-                height="300px"
-              />
+              {/* Enhanced OpenStreetMap Location Search */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('property-location', 'সম্পত্তির অবস্থান', 'Property Location')}
+                  </label>
+                  <EnhancedPropertyMap
+                    location={formData.location}
+                    propertyType={formData.type}
+                    onLocationSelect={(location) => handleInputChange('location', location)}
+                  />
+                </div>
+
+                {/* Location Details */}
+                {formData.location && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-gray-900">
+                      {t('location-details', 'অবস্থানের বিস্তারিত', 'Location Details')}
+                    </h4>
+                    
+                    {formData.location.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin size={16} className="text-gray-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">{formData.location.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.accessibility_score && (
+                      <div className="flex items-center gap-2">
+                        <Navigation size={16} className="text-green-500" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">
+                            {t('accessibility-score', 'সুবিধাজনকতা স্কোর', 'Accessibility Score')}: {formData.location.accessibility_score}%
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${formData.location.accessibility_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.nearby_amenities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Building size={16} className="text-blue-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('nearby-amenities', 'নিকটবর্তী সুবিধা', 'Nearby Amenities')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Object.entries(formData.location.nearby_amenities).map(([type, count]) => (
+                            <div key={type} className="flex items-center gap-2 text-xs">
+                              {type === 'schools' && <Building size={12} className="text-blue-500" />}
+                              {type === 'hospitals' && <Building size={12} className="text-red-500" />}
+                              {type === 'markets' && <Building size={12} className="text-orange-500" />}
+                              {type === 'transport' && <Car size={12} className="text-green-500" />}
+                              {type === 'restaurants' && <Building size={12} className="text-purple-500" />}
+                              <span className="text-gray-600 capitalize">{type}: {count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.neighborhood_info && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Info size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('neighborhood-info', 'পাড়ার তথ্য', 'Neighborhood Information')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          {formData.location.neighborhood_info.population_density && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('population-density', 'জনসংখ্যার ঘনত্ব', 'Population Density')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.population_density}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.crime_rate && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('crime-rate', 'অপরাধের হার', 'Crime Rate')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.crime_rate}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.air_quality && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('air-quality', 'বায়ুর মান', 'Air Quality')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.air_quality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         } else if (formData.type === 'parking') {
@@ -1468,12 +2315,114 @@ const AddPropertyPage: React.FC = () => {
                   placeholder="john@example.com"
                 />
               </div>
-              {/* Location Picker with search and map */}
-              <LocationPicker
-                onLocationSelect={(location) => handleInputChange('location', location)}
-                initialLocation={formData.location}
-                height="300px"
-              />
+              {/* Enhanced OpenStreetMap Location Search */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('property-location', 'সম্পত্তির অবস্থান', 'Property Location')}
+                  </label>
+                  <EnhancedPropertyMap
+                    location={formData.location}
+                    propertyType={formData.type}
+                    onLocationSelect={(location) => handleInputChange('location', location)}
+                  />
+                </div>
+
+                {/* Location Details */}
+                {formData.location && (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-gray-900">
+                      {t('location-details', 'অবস্থানের বিস্তারিত', 'Location Details')}
+                    </h4>
+                    
+                    {formData.location.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin size={16} className="text-gray-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">{formData.location.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.accessibility_score && (
+                      <div className="flex items-center gap-2">
+                        <Navigation size={16} className="text-green-500" />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">
+                            {t('accessibility-score', 'সুবিধাজনকতা স্কোর', 'Accessibility Score')}: {formData.location.accessibility_score}%
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${formData.location.accessibility_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.nearby_amenities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Building size={16} className="text-blue-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('nearby-amenities', 'নিকটবর্তী সুবিধা', 'Nearby Amenities')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Object.entries(formData.location.nearby_amenities).map(([type, count]) => (
+                            <div key={type} className="flex items-center gap-2 text-xs">
+                              {type === 'schools' && <Building size={12} className="text-blue-500" />}
+                              {type === 'hospitals' && <Building size={12} className="text-red-500" />}
+                              {type === 'markets' && <Building size={12} className="text-orange-500" />}
+                              {type === 'transport' && <Car size={12} className="text-green-500" />}
+                              {type === 'restaurants' && <Building size={12} className="text-purple-500" />}
+                              <span className="text-gray-600 capitalize">{type}: {count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.location.neighborhood_info && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Info size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">
+                            {t('neighborhood-info', 'পাড়ার তথ্য', 'Neighborhood Information')}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          {formData.location.neighborhood_info.population_density && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('population-density', 'জনসংখ্যার ঘনত্ব', 'Population Density')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.population_density}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.crime_rate && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('crime-rate', 'অপরাধের হার', 'Crime Rate')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.crime_rate}</span>
+                            </div>
+                          )}
+                          {formData.location.neighborhood_info.air_quality && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-600">
+                                {t('air-quality', 'বায়ুর মান', 'Air Quality')}:
+                              </span>
+                              <span className="font-medium">{formData.location.neighborhood_info.air_quality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         }
