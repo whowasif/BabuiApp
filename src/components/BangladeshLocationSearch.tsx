@@ -271,9 +271,9 @@ const BangladeshLocationSearch: React.FC<BangladeshLocationSearchProps> = ({
           <div className="absolute z-[99999] w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
             {divisions.length > 0 ? (
               // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              divisions.map((division, _index) => (
+              divisions.map((division, idx) => (
                 <button
-                  key={division.id}
+                  key={`${division.id}-${idx}`}
                   type="button"
                   onClick={(e) => handleDivisionSelect(division.id, e)}
                   className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer transition-colors duration-150"
@@ -326,11 +326,11 @@ const BangladeshLocationSearch: React.FC<BangladeshLocationSearchProps> = ({
 
         {showDistrictDropdown && selectedDivision && (
           <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                          {districts.length > 0 ? (
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                districts.map((district, _index) => (
+            {districts.length > 0 ? (
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              districts.map((district, idx) => (
                 <button
-                  key={district.id}
+                  key={`${district.id}-${idx}`}
                   type="button"
                   onClick={(e) => handleDistrictSelect(district.id, e)}
                   className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer transition-colors duration-150"
@@ -383,11 +383,11 @@ const BangladeshLocationSearch: React.FC<BangladeshLocationSearchProps> = ({
 
         {showThanaDropdown && selectedDistrict && (
           <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                          {thanas.length > 0 ? (
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                thanas.map((thana, _index) => (
+            {thanas.length > 0 ? (
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              thanas.map((thana, idx) => (
                 <button
-                  key={thana.id}
+                  key={`${thana.id}-${idx}`}
                   type="button"
                   onClick={(e) => handleThanaSelect(thana.id, e)}
                   className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer transition-colors duration-150"
@@ -440,11 +440,11 @@ const BangladeshLocationSearch: React.FC<BangladeshLocationSearchProps> = ({
 
         {showAreaDropdown && selectedThana && (
           <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                          {areas.length > 0 ? (
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                areas.map((area, _index) => (
+            {areas.length > 0 ? (
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              areas.map((area, idx) => (
                 <button
-                  key={area}
+                  key={`${area}-${idx}`}
                   type="button"
                   onClick={(e) => handleAreaSelect(area, e)}
                   className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer transition-colors duration-150"

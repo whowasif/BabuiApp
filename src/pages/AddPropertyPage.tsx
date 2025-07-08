@@ -21,6 +21,7 @@ import { Select, defaults as defaultInteractions } from 'ol/interaction';
 import { click } from 'ol/events/condition';
 import { ScaleLine, defaults as defaultControls, ZoomSlider, FullScreen, Attribution } from 'ol/control';
 import 'ol/ol.css';
+import { supabase } from '../utils/supabaseClient';
 
 // Search result interface
 interface SearchResult {
@@ -70,6 +71,7 @@ interface PropertyFormData {
   area_name: string;
   address: string;
   addressBn: string;
+  locationDetails?: string; // Added for more details about location
   location?: PropertyLocation;
   amenities: string[];
   images: File[];
@@ -124,6 +126,7 @@ const AddPropertyPage: React.FC = () => {
     area_name: '',
     address: '',
     addressBn: '',
+    locationDetails: '', // Added to initial state
     location: undefined,
     amenities: [],
     images: [],
@@ -233,99 +236,99 @@ const AddPropertyPage: React.FC = () => {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('Property submitted:', formData);
-    
-    // Create new property object
-    const newProperty: Property = {
-      id: `property-${Date.now()}`, // Generate unique ID
-      title: formData.title,
-      titleBn: formData.titleBn,
-      description: formData.description,
-      descriptionBn: formData.descriptionBn,
+
+    // 1. Upload images to Supabase Storage and get public URLs
+    let imageUrls: string[] = [];
+    if (formData.images && formData.images.length > 0) {
+      for (const file of formData.images) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+        const { data, error: uploadError } = await supabase.storage
+          .from('property-images')
+          .upload(fileName, file, { upsert: false });
+        if (uploadError) {
+          alert('Failed to upload image: ' + uploadError.message);
+          return;
+        }
+        // Get public URL
+        const { data: publicUrlData } = supabase.storage
+          .from('property-images')
+          .getPublicUrl(fileName);
+        if (publicUrlData?.publicUrl) {
+          imageUrls.push(publicUrlData.publicUrl);
+        }
+      }
+    }
+
+    // Map form fields to DB columns based on property type
+    const propertyType = formData.type;
+    const baseInsert: any = {
+      property_type: formData.type,
+      address_division: formData.division,
+      address_district: formData.district,
+      address_thana: formData.thana,
+      address_area: formData.area_name,
+      location_details: formData.locationDetails, // More Details about location
       price: formData.price,
-      currency: 'BDT',
-      type: formData.type,
-      bedrooms: formData.bedrooms,
-      bathrooms: formData.bathrooms,
-      area: formData.area,
-      images: formData.images.map((file, index) => ({
-        id: `img-${Date.now()}-${index}`,
-        src: URL.createObjectURL(file),
-        alt: formData.title,
-        altBn: formData.titleBn,
-        priority: index === 0
-      })),
-      location: formData.location ? {
-        address: formData.address,
-        addressBn: formData.addressBn,
-        city: formData.city,
-        area: formData.area_name,
-        areaBn: formData.area_name,
-        coordinates: {
-          lat: formData.location.lat,
-          lng: formData.location.lng
-        },
-        nearbyPlaces: [],
-        nearbyPlacesBn: []
-      } : {
-        address: formData.address,
-        addressBn: formData.addressBn,
-        city: formData.city,
-        area: formData.area_name,
-        areaBn: formData.area_name,
-        coordinates: { lat: 23.8103, lng: 90.4125 }, // Default to Dhaka
-        nearbyPlaces: [],
-        nearbyPlacesBn: []
-      },
+      price_negotiability: formData.priceNegotiable,
+      availability: formData.availableFrom,
       amenities: formData.amenities,
-      amenitiesBn: formData.amenities.map(amenity => {
-        const amenityMap: Record<string, string> = {
-          'ac': 'এয়ার কন্ডিশনার',
-          'parking': 'পার্কিং',
-          'security': 'নিরাপত্তা',
-          'elevator': 'লিফট',
-          'internet': 'ইন্টারনেট',
-          'kitchen': 'রান্নাঘর',
-          'balcony': 'বারান্দা',
-          'furnished': 'সাজানো',
-          'gas': 'গ্যাস',
-          'generator': 'জেনারেটর',
-          'cctv': 'সিসিটিভি',
-          'gym': 'জিম'
-        };
-        return amenityMap[amenity] || amenity;
-      }),
-      landlord: {
-        id: `landlord-${Date.now()}`,
-        name: formData.contactName,
-        nameBn: formData.contactNameBn,
-        phone: formData.contactPhone,
-        email: formData.contactEmail,
-        rating: 0,
-        verified: false
-      },
-      available: true,
-      availableFrom: new Date(formData.availableFrom),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      genderPreference: formData.genderPreference,
-      furnishing: formData.furnishing,
-      parking: formData.parking
+      property_details: formData.description, // More Details about property
+      pictures: imageUrls, // Use uploaded image URLs
+      contact_name: formData.contactName,
+      contact_phone: formData.contactPhone,
+      contact_email: formData.contactEmail,
+      location_from_map: formData.location ? JSON.stringify(formData.location) : null,
+      created_at: new Date(),
+      updated_at: new Date(),
     };
-    
-    // Add property to store
-    addProperty(newProperty);
-    
-    // Show success modal
+
+    // Add type-specific fields
+    if (["apartment", "room", "office", "shop"].includes(propertyType)) {
+      baseInsert.floor = formData.floor;
+      baseInsert.furnish = formData.furnishing;
+      baseInsert.area_sqft = formData.area;
+    }
+    if (["apartment", "room", "office"].includes(propertyType)) {
+      baseInsert.bathroom = formData.bathrooms;
+    }
+    if (["apartment", "room"].includes(propertyType)) {
+      baseInsert.balcony = formData.balcony;
+      baseInsert.gender_preference = formData.genderPreference;
+      baseInsert.priority = formData.priority;
+    }
+    if (["apartment"].includes(propertyType)) {
+      baseInsert.bedroom = formData.bedrooms;
+    }
+    if (["room", "office"].includes(propertyType)) {
+      baseInsert.room_quantity = formData.roomQuantity;
+    }
+    if (["parking"].includes(propertyType)) {
+      baseInsert.type = formData.parkingType;
+    }
+    if (["apartment", "room", "office", "shop", "parking"].includes(propertyType)) {
+      // All property types get these fields
+    }
+
+    // Insert into Supabase
+    const { error } = await supabase.from('properties').insert([
+      baseInsert
+    ]);
+
+    if (error) {
+      alert('Failed to add property: ' + error.message);
+      return;
+    }
+
+    // Add property to store (optional, for local state)
+    // addProperty(newProperty); // You may want to update this to match the new structure
     setShowSuccessModal(true);
-    
-    // Simulate API call delay
     setTimeout(() => {
       setShowSuccessModal(false);
-      // Navigate to property detail page
-      navigate(`/property/${newProperty.id}`);
+      navigate(`/properties`);
     }, 2000);
   };
 
@@ -845,13 +848,13 @@ const AddPropertyPage: React.FC = () => {
               </div>
               {/* More Details about location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about location</label>
-                <textarea
-                  value={formData.addressBn}
-                  onChange={(e) => handleInputChange('addressBn', e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="Describe the location..."
+                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about Location <span className='text-gray-400'>(optional)</span></label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4"
+                  value={formData.locationDetails}
+                  onChange={e => handleInputChange('locationDetails', e.target.value)}
+                  placeholder="E.g. Near main gate, beside mosque, 3rd floor, etc. (optional)"
                 />
               </div>
               {/* Price */}
@@ -1211,13 +1214,13 @@ const AddPropertyPage: React.FC = () => {
               </div>
               {/* More Details about location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about location</label>
-                <textarea
-                  value={formData.addressBn}
-                  onChange={(e) => handleInputChange('addressBn', e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="Describe the location..."
+                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about Location <span className='text-gray-400'>(optional)</span></label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4"
+                  value={formData.locationDetails}
+                  onChange={e => handleInputChange('locationDetails', e.target.value)}
+                  placeholder="E.g. Near main gate, beside mosque, 3rd floor, etc. (optional)"
                 />
               </div>
               {/* Price */}
@@ -1583,13 +1586,13 @@ const AddPropertyPage: React.FC = () => {
               </div>
               {/* More Details about location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about location</label>
-                <textarea
-                  value={formData.addressBn}
-                  onChange={(e) => handleInputChange('addressBn', e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="Describe the location..."
+                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about Location <span className='text-gray-400'>(optional)</span></label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4"
+                  value={formData.locationDetails}
+                  onChange={e => handleInputChange('locationDetails', e.target.value)}
+                  placeholder="E.g. Near main gate, beside mosque, 3rd floor, etc. (optional)"
                 />
               </div>
               {/* Price */}
@@ -1915,13 +1918,13 @@ const AddPropertyPage: React.FC = () => {
               </div>
               {/* More Details about location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about location</label>
-                <textarea
-                  value={formData.addressBn}
-                  onChange={(e) => handleInputChange('addressBn', e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="Describe the location..."
+                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about Location <span className='text-gray-400'>(optional)</span></label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4"
+                  value={formData.locationDetails}
+                  onChange={e => handleInputChange('locationDetails', e.target.value)}
+                  placeholder="E.g. Near main gate, beside mosque, 3rd floor, etc. (optional)"
                 />
               </div>
               {/* Price */}
@@ -2234,13 +2237,13 @@ const AddPropertyPage: React.FC = () => {
               </div>
               {/* More Details about location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about location</label>
-                <textarea
-                  value={formData.addressBn}
-                  onChange={(e) => handleInputChange('addressBn', e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  placeholder="Describe the location..."
+                <label className="block text-sm font-medium text-gray-700 mb-2">More Details about Location <span className='text-gray-400'>(optional)</span></label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4"
+                  value={formData.locationDetails}
+                  onChange={e => handleInputChange('locationDetails', e.target.value)}
+                  placeholder="E.g. Near main gate, beside mosque, 3rd floor, etc. (optional)"
                 />
               </div>
               {/* Price */}
