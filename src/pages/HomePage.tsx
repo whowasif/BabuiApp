@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useInView } from 'react-intersection-observer';
 import SearchFilters from '../components/SearchFilters';
 import PropertyCard from '../components/PropertyCard';
@@ -6,10 +6,12 @@ import PropertiesMap from '../components/PropertiesMap';
 import { SearchFilters as SearchFiltersType, Property } from '../types';
 import { usePropertyStore } from '../stores/propertyStore';
 import { useLanguage } from '../hooks/useLanguage';
+import { useNavigate } from 'react-router-dom';
 
 const HomePage: React.FC = () => {
   const { t } = useLanguage();
-  const { properties } = usePropertyStore();
+  const { properties, fetchProperties } = usePropertyStore();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<SearchFiltersType>({});
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
@@ -23,18 +25,17 @@ const HomePage: React.FC = () => {
     triggerOnce: false,
   });
 
+  useEffect(() => {
+    fetchProperties();
+  }, [fetchProperties]);
+
   // Filter properties based on search criteria
   const filteredProperties = useMemo(() => {
     return properties.filter((property: Property) => {
-      // Property ID search
-      if (filters.propertyId && !property.id.toLowerCase().includes(filters.propertyId.toLowerCase())) {
-        return false;
-      }
-      
-      // Location filters
-      if (filters.city && property.location.city !== filters.city) return false;
+      if (filters.division && property.location.division !== filters.division) return false;
+      if (filters.district && property.location.district !== filters.district) return false;
+      if (filters.thana && property.location.thana !== filters.thana) return false;
       if (filters.area && property.location.area !== filters.area) return false;
-      
       // Property type filter (now includes categories)
       if (filters.type) {
         // Handle category-based filtering
@@ -58,17 +59,15 @@ const HomePage: React.FC = () => {
             }
         }
       }
-      
       if (filters.minPrice && property.price < filters.minPrice) return false;
       if (filters.maxPrice && property.price > filters.maxPrice) return false;
       if (filters.bedrooms && property.bedrooms < filters.bedrooms) return false;
       if (filters.bathrooms && property.bathrooms < filters.bathrooms) return false;
       if (filters.minArea && property.area < filters.minArea) return false;
       if (filters.maxArea && property.area > filters.maxArea) return false;
-      
       return true;
     });
-  }, [filters]);
+  }, [properties, filters]);
 
   // Load more properties when scrolling
   React.useEffect(() => {
@@ -98,12 +97,17 @@ const HomePage: React.FC = () => {
 
   const handlePropertySelect = (propertyId: string) => {
     setSelectedProperty(propertyId);
-    if (viewMode === 'grid') {
-      // Scroll to property card
-      const element = document.getElementById(`property-${propertyId}`);
-      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    navigate(`/property/${propertyId}`);
   };
+
+  const propertiesWithCoords = displayedProperties.filter(
+    p => p.location && p.location.coordinates &&
+      typeof p.location.coordinates.lat === 'number' &&
+      typeof p.location.coordinates.lng === 'number' &&
+      p.location.coordinates.lat !== 0 &&
+      p.location.coordinates.lng !== 0
+  );
+  console.log('Properties with coords:', propertiesWithCoords);
 
   return (
     <div className="pb-20">
@@ -291,12 +295,18 @@ const HomePage: React.FC = () => {
         ) : (
           /* Map View with enhanced styling */
           <div className="bg-white rounded-2xl shadow-lg border border-amber-200 overflow-hidden">
-            <PropertiesMap 
-              properties={displayedProperties}
-              onPropertyClick={(property) => handlePropertySelect(property.id)}
-              selectedPropertyId={selectedProperty}
-              height="600px"
-            />
+            {propertiesWithCoords.length > 0 ? (
+              <PropertiesMap 
+                properties={propertiesWithCoords}
+                onPropertyClick={(property) => handlePropertySelect(property.id)}
+                selectedPropertyId={selectedProperty}
+                height="600px"
+              />
+            ) : (
+              <div className="text-center py-20 text-amber-600 text-lg">
+                {t('no-properties-with-location', 'কোন অবস্থানসহ বাসা পাওয়া যায়নি', 'No properties with valid locations found')}
+              </div>
+            )}
           </div>
         )}
       </main>

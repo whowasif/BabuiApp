@@ -6,7 +6,7 @@ import {
   Wifi, Car, Shield, Zap, Home, Users, ChevronLeft, ChevronRight,
   Eye, Clock, Verified, Mail, Award, TrendingUp
 } from 'lucide-react';
-import { mockProperties } from '../data/mockProperties';
+import { usePropertyStore } from '../stores/propertyStore';
 import { useLanguage } from '../hooks/useLanguage';
 import PropertyImage from '../components/PropertyImage';
 
@@ -18,7 +18,7 @@ const PropertyDetailPage: React.FC = () => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
 
-  const property = mockProperties.find(p => p.id === id);
+  const property = usePropertyStore((state) => state.properties.find(p => p.id === id));
 
   if (!property) {
     return (
@@ -59,7 +59,13 @@ const PropertyDetailPage: React.FC = () => {
   };
 
   const handleChatWithOwner = () => {
-    navigate(`/chat?owner=${property.landlord.id}&property=${property.id}`);
+    // If landlord ID is not available, use property ID as fallback
+    const ownerId = property.landlord.id || property.id;
+    if (!ownerId) {
+      console.error('No owner ID available for chat');
+      return;
+    }
+    navigate(`/chat?owner=${ownerId}&property=${property.id}`);
   };
 
   const handleShare = async () => {

@@ -10,13 +10,14 @@ import AddPropertyPage from './pages/AddPropertyPage';
 import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
 import EditProfilePage from './pages/EditProfilePage';
+import ChatTest from './components/ChatTest';
 
 // Create query client
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes
-      cacheTime: 10 * 60 * 1000, // 10 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes (replaces cacheTime)
     },
   },
 });
@@ -36,6 +37,7 @@ function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/profile/edit" element={<EditProfilePage />} />
+            <Route path="/chat-test" element={<ChatTest />} />
           </Routes>
 
           <BottomNavigation />

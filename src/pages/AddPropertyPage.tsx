@@ -6,6 +6,7 @@ import LocationSearch from '../components/LocationSearch';
 import BangladeshLocationSearch from '../components/BangladeshLocationSearch';
 import LocationPicker from '../components/LocationPicker';
 import { usePropertyStore } from '../stores/propertyStore';
+import { useAuthStore } from '../stores/authStore';
 import { Property } from '../types';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -263,6 +264,13 @@ const AddPropertyPage: React.FC = () => {
       }
     }
 
+    // Get current user
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) {
+      alert('Please login to add a property');
+      return;
+    }
+
     // Map form fields to DB columns based on property type
     const propertyType = formData.type;
     const baseInsert: any = {
@@ -281,6 +289,7 @@ const AddPropertyPage: React.FC = () => {
       contact_name: formData.contactName,
       contact_phone: formData.contactPhone,
       contact_email: formData.contactEmail,
+      owner_id: currentUser.id, // Add the current user as the owner
       location_from_map: formData.location ? JSON.stringify(formData.location) : null,
       created_at: new Date(),
       updated_at: new Date(),

@@ -45,6 +45,9 @@ export interface PropertyLocation {
   };
   nearbyPlaces: string[];
   nearbyPlacesBn: string[];
+  division?: string;
+  district?: string;
+  thana?: string;
 }
 
 export interface Landlord {

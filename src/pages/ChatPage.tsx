@@ -2,35 +2,14 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, Video, MoreVertical, Search, ArrowLeft, MessageCircle } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-
-interface Message {
-  id: string;
-  text: string;
-  sender: 'user' | 'other';
-  timestamp: Date;
-  read: boolean;
-}
-
-interface Chat {
-  id: string;
-  name: string;
-  nameBn: string;
-  avatar: string;
-  lastMessage: string;
-  lastMessageBn: string;
-  timestamp: Date;
-  unreadCount: number;
-  online: boolean;
-  propertyTitle?: string;
-  propertyTitleBn?: string;
-  propertyId?: string;
-}
+import { useChatStore, Chat, Message } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
+import { useUserProfiles } from '../hooks/useUserProfiles';
 
 const ChatPage: React.FC = () => {
   const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -39,125 +18,89 @@ const ChatPage: React.FC = () => {
   const ownerIdFromUrl = searchParams.get('owner');
   const propertyIdFromUrl = searchParams.get('property');
 
-  // Mock data
-  const [chats] = useState<Chat[]>([
-    {
-      id: '1',
-      name: 'Rahman Ahmed',
-      nameBn: 'রহমান আহমেদ',
-      avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?w=100&h=100&fit=crop&crop=face',
-      lastMessage: 'The apartment is available for viewing tomorrow',
-      lastMessageBn: 'অ্যাপার্টমেন্টটি আগামীকাল দেখার জন্য উপলব্ধ',
-      timestamp: new Date(Date.now() - 5 * 60 * 1000),
-      unreadCount: 2,
-      online: true,
-      propertyTitle: 'Modern 3BHK Apartment in Gulshan',
-      propertyTitleBn: 'গুলশানে আধুনিক ৩ বেডরুমের অ্যাপার্টমেন্ট',
-      propertyId: '1'
-    },
-    {
-      id: '2',
-      name: 'Fatima Khatun',
-      nameBn: 'ফাতিমা খাতুন',
-      avatar: 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?w=100&h=100&fit=crop&crop=face',
-      lastMessage: 'Thank you for your interest',
-      lastMessageBn: 'আপনার আগ্রহের জন্য ধন্যবাদ',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      unreadCount: 0,
-      online: false,
-      propertyTitle: 'Cozy 2BHK in Dhanmondi',
-      propertyTitleBn: 'ধানমন্ডিতে আরামদায়ক ২ বেডরুমের ফ্ল্যাট',
-      propertyId: '2'
-    },
-    {
-      id: '3',
-      name: 'Karim Uddin',
-      nameBn: 'করিম উদ্দিন',
-      avatar: 'https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?w=100&h=100&fit=crop&crop=face',
-      lastMessage: 'What time works best for you?',
-      lastMessageBn: 'আপনার জন্য কোন সময়টা ভালো?',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      unreadCount: 1,
-      online: true,
-      propertyTitle: 'Sea View Apartment in Chittagong',
-      propertyTitleBn: 'চট্টগ্রামে সমুদ্র দৃশ্য সহ অ্যাপার্টমেন্ট',
-      propertyId: '3'
-    }
-  ]);
+  // Chat store
+  const {
+    chats,
+    messages,
+    currentChat,
+    loading,
+    error,
+    fetchChats,
+    fetchMessages,
+    sendMessage,
+    createChat,
+    setCurrentChat,
+    subscribeToMessages,
+    unsubscribeFromMessages
+  } = useChatStore();
 
-  const [messages, setMessages] = useState<Record<string, Message[]>>({
-    '1': [
-      {
-        id: '1',
-        text: 'Hi, I\'m interested in your apartment listing',
-        sender: 'user',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000),
-        read: true
-      },
-      {
-        id: '2',
-        text: 'Hello! Thank you for your interest. The apartment is still available.',
-        sender: 'other',
-        timestamp: new Date(Date.now() - 25 * 60 * 1000),
-        read: true
-      },
-      {
-        id: '3',
-        text: 'Can I schedule a viewing?',
-        sender: 'user',
-        timestamp: new Date(Date.now() - 20 * 60 * 1000),
-        read: true
-      },
-      {
-        id: '4',
-        text: 'The apartment is available for viewing tomorrow',
-        sender: 'other',
-        timestamp: new Date(Date.now() - 5 * 60 * 1000),
-        read: false
-      }
-    ]
-  });
+  const currentUser = useAuthStore((state) => state.user);
+
+  // Get all unique user IDs from chats
+  const userIds = Array.from(new Set([
+    ...chats.map(c => c.owner_id),
+    ...chats.map(c => c.tenant_id)
+  ].filter(Boolean)));
+  const { userMap } = useUserProfiles(userIds);
 
   // Auto-select chat if coming from property detail page
   useEffect(() => {
-    if (ownerIdFromUrl && propertyIdFromUrl) {
+    if (ownerIdFromUrl && propertyIdFromUrl && currentUser) {
       const targetChat = chats.find(chat => 
-        chat.id === ownerIdFromUrl || chat.propertyId === propertyIdFromUrl
+        chat.property_id === propertyIdFromUrl && 
+        (chat.owner_id === ownerIdFromUrl || chat.tenant_id === ownerIdFromUrl)
       );
-      if (targetChat) {
-        setSelectedChat(targetChat.id);
-      } else {
-        // Create a new chat if owner/property not found
-        const newChat: Chat = {
-          id: ownerIdFromUrl || 'new-chat',
-          name: 'Property Owner',
-          nameBn: 'সম্পত্তির মালিক',
-          avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?w=100&h=100&fit=crop&crop=face',
-          lastMessage: 'Start a conversation',
-          lastMessageBn: 'কথোপকথন শুরু করুন',
-          timestamp: new Date(),
-          unreadCount: 0,
-          online: true,
-          propertyTitle: 'Property Inquiry',
-          propertyTitleBn: 'সম্পত্তি অনুসন্ধান',
-          propertyId: propertyIdFromUrl || undefined
-        };
-        
-        // Add to chats and select
-        setSelectedChat(newChat.id);
+      if (targetChat && currentChat !== targetChat.id) {
+        setCurrentChat(targetChat.id);
+      } else if (!targetChat && !currentChat) {
+        createChat(propertyIdFromUrl, ownerIdFromUrl).then((chatId) => {
+          setCurrentChat(chatId);
+        }).catch((error) => {
+          console.error('Error creating chat:', error);
+        });
       }
     }
-  }, [ownerIdFromUrl, propertyIdFromUrl, chats]);
+    // Only run when these change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerIdFromUrl, propertyIdFromUrl, currentUser, createChat, currentChat]);
 
-  const filteredChats = chats.filter(chat => {
-    const name = language === 'bn' ? chat.nameBn : chat.name;
-    const property = language === 'bn' ? chat.propertyTitleBn : chat.propertyTitle;
+  // Subscribe to real-time messages when chat is selected
+  useEffect(() => {
+    if (currentChat) {
+      subscribeToMessages(currentChat);
+      return () => unsubscribeFromMessages(currentChat);
+    }
+  }, [currentChat, subscribeToMessages, unsubscribeFromMessages]);
+
+  // Fetch chats on component mount
+  useEffect(() => {
+    if (currentUser) {
+      fetchChats();
+    }
+  }, [currentUser, fetchChats]);
+
+  // Remove duplicate chats by id before filtering
+  const uniqueChats = [];
+  const seenChatIds = new Set();
+  for (const chat of chats) {
+    if (!seenChatIds.has(chat.id)) {
+      uniqueChats.push(chat);
+      seenChatIds.add(chat.id);
+    }
+  }
+  const filteredChats = uniqueChats.filter(chat => {
+    // Show the other participant's name
+    const isOwner = chat.owner_id === currentUser?.id;
+    const otherUserId = isOwner ? chat.tenant_id : chat.owner_id;
+    const otherUser = userMap[otherUserId] || {};
+    const name = (language === 'bn' ? otherUser.name_bn : otherUser.name_en) || otherUserId || '';
+    const property = (chat.property_title_bn && language === 'bn' ? chat.property_title_bn : chat.property_title) || chat.property_id || '';
     return name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-           (property && property.toLowerCase().includes(searchQuery.toLowerCase()));
+           property.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  const selectedChatData = chats.find(chat => chat.id === selectedChat);
-  const chatMessages = useMemo(() => (selectedChat ? messages[selectedChat] || [] : []), [selectedChat, messages]);
+  const selectedChatData = chats.find(chat => chat.id === currentChat);
+  const chatMessages = useMemo(() => (currentChat ? messages[currentChat] || [] : []), [currentChat, messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -169,37 +112,27 @@ const ChatPage: React.FC = () => {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || !selectedChat) return;
+    if (!message.trim() || !currentChat) return;
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: message,
-      sender: 'user',
-      timestamp: new Date(),
-      read: true
-    };
-
-    setMessages(prev => ({
-      ...prev,
-      [selectedChat]: [...(prev[selectedChat] || []), newMessage]
-    }));
-
+    sendMessage(currentChat, message);
     setMessage('');
   };
 
-  const formatTime = (date: Date) => {
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
     return date.toLocaleTimeString(language === 'bn' ? 'bn-BD' : 'en-US', {
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
-  const formatDate = (date: Date) => {
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
     const now = new Date();
     const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 
     if (diffInHours < 24) {
-      return formatTime(date);
+      return formatTime(dateString);
     } else if (diffInHours < 48) {
       return t('yesterday', 'গতকাল', 'Yesterday');
     } else {
@@ -211,13 +144,49 @@ const ChatPage: React.FC = () => {
     navigate(`/property/${propertyId}`);
   };
 
+  const getOtherUserInfo = (chat: Chat) => {
+    const isOwner = chat.owner_id === currentUser?.id;
+    return {
+      name: isOwner ? chat.tenant_name : chat.owner_name,
+      nameBn: isOwner ? chat.tenant_name_bn : chat.owner_name_bn,
+      avatar: isOwner ? chat.tenant_avatar : chat.owner_avatar,
+      online: false // You can implement online status logic here
+    };
+  };
+
+  const isMessageFromCurrentUser = (message: Message) => {
+    return message.sender_id === currentUser?.id;
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-lg border border-amber-200">
+          <MessageCircle className="w-16 h-16 text-amber-600 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-amber-800 mb-2">
+            {t('login-required', 'লগইন প্রয়োজন', 'Login Required')}
+          </h2>
+          <p className="text-amber-600 mb-4">
+            {t('login-to-chat', 'চ্যাট করতে লগইন করুন', 'Please login to access chat')}
+          </p>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all duration-300 transform hover:scale-105"
+          >
+            {t('back-to-home', 'হোমে ফিরে যান', 'Back to Home')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="pb-20 h-screen flex flex-col bg-gradient-to-br from-amber-50 to-orange-50">
       <div className="flex flex-1 overflow-hidden">
         {/* Chat List */}
         <div className={`
           w-full md:w-80 bg-white border-r border-amber-200 flex flex-col shadow-lg
-          ${selectedChat ? 'hidden md:flex' : 'flex'}
+          ${currentChat ? 'hidden md:flex' : 'flex'}
         `}>
           {/* Header */}
           <div className="p-6 border-b border-amber-200 bg-gradient-to-r from-amber-500 to-orange-500 text-white">
@@ -240,64 +209,57 @@ const ChatPage: React.FC = () => {
 
           {/* Chat List */}
           <div className="flex-1 overflow-y-auto">
-            {filteredChats.length > 0 ? (
-              filteredChats.map((chat) => (
-                <button
-                  key={chat.id}
-                  onClick={() => setSelectedChat(chat.id)}
-                  className={`
-                    w-full p-4 border-b border-amber-100 hover:bg-amber-50 transition-colors text-left
-                    ${selectedChat === chat.id ? 'bg-amber-100 border-r-4 border-r-amber-500' : ''}
-                  `}
-                >
-                  <div className="flex items-center gap-3">
+            {loading ? (
+              <div className="p-8 text-center text-amber-600">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500 mx-auto mb-4"></div>
+                <p>{t('loading-chats', 'চ্যাট লোড হচ্ছে...', 'Loading chats...')}</p>
+              </div>
+            ) : filteredChats.length > 0 ? (
+              filteredChats.map((chat) => {
+                const isOwner = chat.owner_id === currentUser?.id;
+                const otherUserId = isOwner ? chat.tenant_id : chat.owner_id;
+                const otherUser = userMap[otherUserId] || {};
+                const avatar = otherUser.profile_picture_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(otherUser.name_en || 'User');
+                const name = (language === 'bn' ? otherUser.name_bn : otherUser.name_en) || otherUserId || 'Unknown User';
+                return (
+                  <button
+                    key={`${chat.id}-${chat.owner_id}-${chat.tenant_id}`}
+                    onClick={() => setCurrentChat(chat.id)}
+                    className={`
+                      w-full p-4 border-b border-amber-100 hover:bg-amber-50 transition-colors text-left flex items-center gap-3
+                      ${currentChat === chat.id ? 'bg-amber-100 border-r-4 border-r-amber-500' : ''}
+                    `}
+                  >
                     <div className="relative">
                       <img
-                        src={chat.avatar}
-                        alt={language === 'bn' ? chat.nameBn : chat.name}
-                        className="w-12 h-12 rounded-full object-cover border-2 border-amber-200"
+                        src={avatar}
+                        alt={name}
+                        className="w-12 h-12 rounded-full object-cover border-2 border-amber-200 shadow"
                       />
-                      {chat.online && (
-                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
-                      )}
                     </div>
-                    
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="font-semibold text-amber-900 truncate">
-                          {language === 'bn' ? chat.nameBn : chat.name}
+                          {name}
                         </h3>
                         <span className="text-xs text-amber-600">
-                          {formatDate(chat.timestamp)}
+                          {chat.last_message_time ? formatDate(chat.last_message_time) : ''}
                         </span>
                       </div>
-                      
-                      {chat.propertyTitle && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePropertyClick(chat.propertyId!);
-                          }}
-                          className="text-xs text-amber-600 mb-1 truncate hover:underline block text-left bg-amber-50 px-2 py-1 rounded"
-                        >
-                          {language === 'bn' ? chat.propertyTitleBn : chat.propertyTitle}
-                        </button>
-                      )}
-                      
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mt-1">
                         <p className="text-sm text-amber-700 truncate">
-                          {language === 'bn' ? chat.lastMessageBn : chat.lastMessage}
+                          {language === 'bn' ? chat.last_message_bn || '' : chat.last_message || ''}
                         </p>
-                        {chat.unreadCount > 0 && (
+                        {chat.unread_count > 0 && (
                           <span className="bg-amber-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
-                            {chat.unreadCount}
+                            {chat.unread_count}
                           </span>
                         )}
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))
+                  </button>
+                );
+              })
             ) : (
               <div className="p-8 text-center text-amber-600">
                 <MessageCircle className="mx-auto h-12 w-12 mb-4" />
@@ -310,99 +272,118 @@ const ChatPage: React.FC = () => {
         {/* Chat Window */}
         <div className={`
           flex-1 flex flex-col bg-white
-          ${selectedChat ? 'flex' : 'hidden md:flex'}
+          ${currentChat ? 'flex' : 'hidden md:flex'}
         `}>
-          {selectedChat && selectedChatData ? (
+          {currentChat && selectedChatData ? (
             <>
               {/* Chat Header */}
-              <div className="bg-white p-4 border-b border-amber-200 flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setSelectedChat(null)}
-                    className="md:hidden p-2 hover:bg-amber-100 rounded-lg transition-colors"
-                  >
-                    <ArrowLeft size={20} className="text-amber-600" />
-                  </button>
-                  
-                  <div className="relative">
-                    <img
-                      src={selectedChatData.avatar}
-                      alt={language === 'bn' ? selectedChatData.nameBn : selectedChatData.name}
-                      className="w-10 h-10 rounded-full object-cover border-2 border-amber-200"
-                    />
-                    {selectedChatData.online && (
-                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
-                    )}
-                  </div>
-                  
-                  <div>
-                    <h2 className="font-semibold text-amber-900">
-                      {language === 'bn' ? selectedChatData.nameBn : selectedChatData.name}
-                    </h2>
-                    <p className="text-sm text-amber-600">
-                      {selectedChatData.online 
-                        ? t('online', 'অনলাইন', 'Online')
-                        : t('offline', 'অফলাইন', 'Offline')
-                      }
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
-                    <Phone size={20} className="text-amber-600" />
-                  </button>
-                  <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
-                    <Video size={20} className="text-amber-600" />
-                  </button>
-                  <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
-                    <MoreVertical size={20} className="text-amber-600" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Property Context (if available) */}
-              {selectedChatData.propertyTitle && (
-                <div className="bg-amber-50 border-b border-amber-200 p-3">
-                  <button
-                    onClick={() => handlePropertyClick(selectedChatData.propertyId!)}
-                    className="text-sm text-amber-700 hover:text-amber-800 hover:underline bg-white px-3 py-2 rounded-lg border border-amber-200 hover:border-amber-300 transition-all duration-300"
-                  >
-                    {t('discussing-property', 'আলোচনা করছেন', 'Discussing')}: {' '}
-                    {language === 'bn' ? selectedChatData.propertyTitleBn : selectedChatData.propertyTitle}
-                  </button>
-                </div>
-              )}
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-amber-50/30 to-orange-50/30">
-                {chatMessages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`
-                        max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm
-                        ${msg.sender === 'user'
-                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
-                          : 'bg-white text-amber-900 border border-amber-200'
-                        }
-                      `}
-                    >
-                      <p className="text-sm leading-relaxed">{msg.text}</p>
-                      <p className={`
-                        text-xs mt-2
-                        ${msg.sender === 'user' ? 'text-amber-100' : 'text-amber-500'}
-                      `}>
-                        {formatTime(msg.timestamp)}
-                      </p>
+              {(() => {
+                const isOwner = selectedChatData.owner_id === currentUser?.id;
+                const otherUserId = isOwner ? selectedChatData.tenant_id : selectedChatData.owner_id;
+                return (
+                  <div className="bg-white p-4 border-b border-amber-200 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setCurrentChat(null)}
+                        className="md:hidden p-2 hover:bg-amber-100 rounded-lg transition-colors"
+                      >
+                        <ArrowLeft size={20} className="text-amber-600" />
+                      </button>
+                      <div className="relative">
+                        <img
+                          src={userMap[otherUserId]?.profile_picture_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(userMap[otherUserId]?.name_en || 'User')}
+                          alt={userMap[otherUserId]?.name_en || 'User'}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-amber-200 shadow"
+                        />
+                      </div>
+                      <div>
+                        <h2 className="font-semibold text-amber-900">
+                          {language === 'bn' ? userMap[otherUserId]?.name_bn : userMap[otherUserId]?.name_en || otherUserId}
+                        </h2>
+                        <p className="text-sm text-amber-600">
+                          {t('offline', 'অফলাইন', 'Offline')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
+                        <Phone size={20} className="text-amber-600" />
+                      </button>
+                      <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
+                        <Video size={20} className="text-amber-600" />
+                      </button>
+                      <button className="p-2 hover:bg-amber-100 rounded-lg transition-colors">
+                        <MoreVertical size={20} className="text-amber-600" />
+                      </button>
                     </div>
                   </div>
-                ))}
+                );
+              })()}
+              {/* Property Context */}
+              {(() => {
+                const isOwner = selectedChatData.owner_id === currentUser?.id;
+                const otherUserId = isOwner ? selectedChatData.tenant_id : selectedChatData.owner_id;
+                return (
+                  <div className="bg-amber-50 border-b border-amber-200 p-3">
+                    <span
+                      onClick={() => handlePropertyClick(selectedChatData.property_id)}
+                      style={{ cursor: 'pointer', textDecoration: 'underline', color: '#b45309' }}
+                      className="text-sm text-amber-700 hover:text-amber-800 hover:underline bg-white px-3 py-2 rounded-lg border border-amber-200 hover:border-amber-300 transition-all duration-300"
+                    >
+                      {t('discussing-property', 'আলোচনা করছেন', 'Discussing')}: {' '}
+                      {language === 'bn' ? selectedChatData.property_title_bn : selectedChatData.property_title}
+                    </span>
+                  </div>
+                );
+              })()}
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-amber-50/30 to-orange-50/30">
+                {chatMessages.map((msg) => {
+                  const isMe = msg.sender_id === currentUser?.id;
+                  const sender = userMap[msg.sender_id] || {};
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className="flex items-end gap-2">
+                        {!isMe && (
+                          <img
+                            src={sender.profile_picture_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(sender.name_en || 'User')}
+                            alt={sender.name_en || 'User'}
+                            className="w-8 h-8 rounded-full object-cover border-2 border-amber-200 shadow"
+                          />
+                        )}
+                        <div
+                          className={`
+                            max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm
+                            ${isMe
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-br-none'
+                              : 'bg-white text-amber-900 border border-amber-200 rounded-bl-none'
+                            }
+                          `}
+                        >
+                          <p className="text-sm leading-relaxed">{msg.text}</p>
+                          <p className={`
+                            text-xs mt-2
+                            ${isMe ? 'text-amber-100' : 'text-amber-500'}
+                          `}>
+                            {formatTime(msg.created_at)}
+                          </p>
+                        </div>
+                        {isMe && (
+                          <img
+                            src={sender.profile_picture_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(sender.name_en || 'User')}
+                            alt={sender.name_en || 'User'}
+                            className="w-8 h-8 rounded-full object-cover border-2 border-amber-200 shadow"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
-
               {/* Message Input */}
               <form onSubmit={handleSendMessage} className="bg-white p-4 border-t border-amber-200">
                 <div className="flex items-center gap-3">
