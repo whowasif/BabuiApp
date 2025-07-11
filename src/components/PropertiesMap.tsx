@@ -33,37 +33,53 @@ const PropertiesMap: React.FC<PropertiesMapProps> = ({
   const vectorSourceRef = useRef<VectorSource | null>(null);
   const [hoveredProperty, setHoveredProperty] = useState<Property | null>(null);
 
-  // Create marker style based on property type
+  // Find the most expensive property (featured)
+  const maxPrice = Math.max(...properties.map(p => p.price || 0));
+  const featuredPropertyId = properties.find(p => p.price === maxPrice)?.id;
+
+  // Pin head color by property type
+  const iconColors: Record<string, string> = {
+    apartment: '#3b82f6', // blue
+    house: '#10b981',     // green
+    room: '#f59e0b',      // orange
+    studio: '#8b5cf6',    // purple
+    office: '#ef4444',    // red
+    shop: '#f97316',      // orange
+    parking: '#6b7280',   // gray
+    family: '#3b82f6',    // blue
+    bachelor: '#f59e0b',  // orange
+    sublet: '#8b5cf6',    // purple
+    hostel: '#10b981',    // green
+  };
+
+  // Create marker style based on property type and if it's featured
   const createPropertyMarkerStyle = (property: Property, isSelected: boolean = false) => {
-    const iconColors = {
-      apartment: '#3b82f6', // blue
-      house: '#10b981',     // green
-      room: '#f59e0b',      // amber
-      studio: '#8b5cf6',    // purple
-      office: '#ef4444',    // red
-      shop: '#f97316',      // orange
-      parking: '#6b7280',   // gray
-      family: '#3b82f6',    // blue
-      bachelor: '#f59e0b',  // amber
-      sublet: '#8b5cf6',    // purple
-      hostel: '#10b981',    // green
-    };
-
-    const color = iconColors[property.type] || '#6b7280';
-    const size = isSelected ? 32 : 24;
-
+    const size = isSelected ? 36 : 28;
+    let color = iconColors[property.type] || '#6b7280';
+    if (property.id === featuredPropertyId) {
+      color = '#FFD700'; // gold for featured
+    }
+    // SVG for classic pin: circle head, white stem
+    const svg = `
+      <svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size * 1.6}' viewBox='0 0 60 96'>
+        <circle cx='30' cy='24' r='22' fill='${color}' stroke='black' stroke-width='2'/>
+        <rect x='26' y='24' width='8' height='60' rx='4' fill='white' stroke='gray' stroke-width='2'/>
+        <ellipse cx='30' cy='84' rx='6' ry='8' fill='gray' opacity='0.2'/>
+      </svg>
+    `;
+    const encodedSvg = encodeURIComponent(svg);
     return new Style({
       image: new Icon({
-        src: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" width="${size}" height="${size}"><path d="M12 2C8.5 2 6 4.5 6 8c0 2.5 1.5 4.5 3 6l3 8 3-8c1.5-1.5 3-3.5 3-6 0-3.5-2.5-6-6-6z"/></svg>`,
-        anchor: [0.5, 1],
+        src: `data:image/svg+xml;utf8,${encodedSvg}`,
+        anchor: [0.5, 0.25],
         scale: 1
       }),
       text: new Text({
         text: property.price.toLocaleString(),
-        font: '12px Arial',
-        fill: new Fill({ color: '#ffffff' }),
-        stroke: new Stroke({ color: '#000000', width: 2 }),
-        offsetY: -8
+        font: 'bold 16px Arial',
+        fill: new Fill({ color: '#222' }),
+        stroke: new Stroke({ color: '#fff', width: 3 }),
+        offsetY: 36
       })
     });
   };
@@ -142,17 +158,16 @@ const PropertiesMap: React.FC<PropertiesMapProps> = ({
 
     properties.forEach(property => {
       if (property.location?.coordinates) {
-        const coordinate = fromLonLat([
-          property.location.coordinates.lng,
-          property.location.coordinates.lat
-        ]);
-        
+        const lat = Number(property.location.coordinates.lat);
+        const lng = Number(property.location.coordinates.lng);
+        console.log('Adding marker for:', { lat, lng });
+        const coordinate = fromLonLat([lng, lat]);
         const feature = new Feature({
           geometry: new Point(coordinate),
           property: property
         });
-        
         vectorSourceRef.current?.addFeature(feature);
+        console.log('Feature added:', feature);
       }
     });
 

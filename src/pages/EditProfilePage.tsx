@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Camera, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
+import { supabase } from '../utils/supabaseClient';
+import { useAuthStore } from '../stores/authStore';
 
 interface ProfileData {
   name: string;
@@ -36,6 +38,40 @@ const EditProfilePage: React.FC = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
+  const currentUser = useAuthStore((state) => state.user);
+
+  // Debug: Log current user before upload
+  React.useEffect(() => {
+    import('../utils/supabaseClient').then(({ supabase }) => {
+      supabase.auth.getUser().then((user) => {
+        console.log('Current Supabase user:', user);
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!currentUser?.id) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+      if (data) setProfileData({
+        name: data.name_en || '',
+        nameBn: data.name_bn || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        location: data.location_en || '',
+        locationBn: data.location_bn || '',
+        bio: data.bio_en || '',
+        bioBn: data.bio_bn || '',
+        avatar: data.profile_picture_url || '',
+      });
+    };
+    fetchProfile();
+  }, [currentUser]);
+
   const handleInputChange = (field: keyof ProfileData, value: string) => {
     setProfileData(prev => ({ ...prev, [field]: value }));
   };
@@ -60,13 +96,46 @@ const EditProfilePage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    // Simulate API call
-    setTimeout(() => {
-      console.log('Profile updated:', profileData);
+    if (!currentUser?.id) {
       setIsLoading(false);
-      navigate('/profile');
-    }, 1500);
+      return;
+    }
+    let avatarUrl = profileData.avatar;
+    // Upload avatar if a new file is selected
+    if (avatarFile) {
+      const fileExt = avatarFile.name.split('.').pop();
+      const filePath = `public/${currentUser.id}/avatar.${fileExt}`;
+      // Debug: Log file and path
+      console.log('Uploading avatar file:', avatarFile, 'to path:', filePath);
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures') // changed from 'avatars'
+        .upload(filePath, avatarFile, { upsert: true });
+      // Debug: Log upload error if any
+      if (uploadError) {
+        console.error('Upload error:', uploadError.message);
+        alert('Avatar upload failed: ' + uploadError.message);
+      } else {
+        const { data: urlData } = supabase.storage
+          .from('profile-pictures') // changed from 'avatars'
+          .getPublicUrl(filePath);
+        avatarUrl = urlData.publicUrl;
+      }
+    }
+    const updates = {
+      name_en: profileData.name,
+      name_bn: profileData.nameBn,
+      location_en: profileData.location,
+      location_bn: profileData.locationBn,
+      bio_en: profileData.bio,
+      bio_bn: profileData.bioBn,
+      profile_picture_url: avatarUrl,
+    };
+    const { error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', currentUser.id);
+    setIsLoading(false);
+    if (!error) navigate('/profile');
   };
 
   return (
@@ -182,7 +251,7 @@ const EditProfilePage: React.FC = () => {
                   <input
                     type="email"
                     value={profileData.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    disabled
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                     required
                   />
@@ -194,7 +263,7 @@ const EditProfilePage: React.FC = () => {
                   <input
                     type="tel"
                     value={profileData.phone}
-                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    disabled
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                     required
                   />

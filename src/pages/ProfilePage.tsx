@@ -1,43 +1,66 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { User, Edit, Heart, Home, MessageCircle, Settings, LogOut, Phone, Mail, MapPin, Star } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../utils/supabaseClient';
+import { useAuthStore } from '../stores/authStore';
 
 interface UserProfile {
   id: string;
   name: string;
-  nameBn: string;
-  email: string;
-  phone: string;
-  avatar: string;
-  location: string;
-  locationBn: string;
-  joinDate: Date;
-  rating: number;
-  totalReviews: number;
-  verified: boolean;
+  nameBn?: string;
+  email?: string;
+  phone?: string;
+  avatar?: string;
+  location?: string;
+  locationBn?: string;
+  joinDate?: string;
+  rating?: number;
+  totalReviews?: number;
+  verified?: boolean;
+  bioEn?: string;
+  bioBn?: string;
 }
 
 const ProfilePage: React.FC = () => {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'overview' | 'properties' | 'favorites' | 'settings'>('overview');
+  const currentUser = useAuthStore((state) => state.user);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Mock user data
-  const [user] = useState<UserProfile>({
-    id: '1',
-    name: 'John Doe',
-    nameBn: 'জন ডো',
-    email: 'john.doe@example.com',
-    phone: '+880 1712-345678',
-    avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?w=150&h=150&fit=crop&crop=face',
-    location: 'Dhaka, Bangladesh',
-    locationBn: 'ঢাকা, বাংলাদেশ',
-    joinDate: new Date('2023-01-15'),
-    rating: 4.8,
-    totalReviews: 24,
-    verified: true
-  });
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!currentUser?.id) return;
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+      if (data) {
+        setUser({
+          id: data.id,
+          name: data.name_en,
+          nameBn: data.name_bn,
+          email: data.email,
+          phone: data.phone,
+          avatar: data.profile_picture_url,
+          location: data.location_en,
+          locationBn: data.location_bn,
+          joinDate: data.created_at,
+          rating: data.rating ?? 0,
+          totalReviews: data.total_reviews ?? 0,
+          verified: true, // You can adjust this if you have a field for verification
+          bioEn: data.bio_en,
+          bioBn: data.bio_bn,
+        });
+      }
+      setLoading(false);
+    };
+    fetchUserProfile();
+  }, [currentUser]);
 
   const stats = [
     {
@@ -61,7 +84,7 @@ const ProfilePage: React.FC = () => {
     {
       icon: Star,
       label: t('rating', 'রেটিং', 'Rating'),
-      value: user.rating.toString(),
+      value: user?.rating?.toString(),
       color: 'text-yellow-600'
     }
   ];
@@ -258,6 +281,22 @@ const ProfilePage: React.FC = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-96">
+        <span className="text-lg text-gray-500">{t('loading', 'লোড হচ্ছে...', 'Loading...')}</span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex justify-center items-center h-96">
+        <span className="text-lg text-gray-500">{t('no-user-found', 'কোনো ব্যবহারকারী পাওয়া যায়নি', 'No user found')}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="pb-20">
       {/* Profile Header */}
@@ -265,11 +304,13 @@ const ProfilePage: React.FC = () => {
         <div className="container mx-auto px-4 py-8">
           <div className="flex items-center gap-6">
             <div className="relative">
+              {user.avatar && (
               <img
                 src={user.avatar}
                 alt={language === 'bn' ? user.nameBn : user.name}
                 className="w-24 h-24 rounded-full object-cover border-4 border-white/20"
               />
+              )}
               {user.verified && (
                 <div className="absolute -bottom-1 -right-1 bg-green-500 text-white rounded-full p-1">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -282,7 +323,7 @@ const ProfilePage: React.FC = () => {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-2xl font-bold">
-                  {language === 'bn' ? user.nameBn : user.name}
+                  {user.name}
                 </h1>
                 {user.verified && (
                   <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
@@ -294,7 +335,7 @@ const ProfilePage: React.FC = () => {
               <div className="flex items-center gap-4 text-white/80 text-sm">
                 <div className="flex items-center gap-1">
                   <MapPin size={16} />
-                  <span>{language === 'bn' ? user.locationBn : user.location}</span>
+                  <span>{user.location}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Star size={16} />
